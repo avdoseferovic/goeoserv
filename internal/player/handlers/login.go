@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"context"
 	"database/sql"
 	"log/slog"
@@ -66,7 +67,7 @@ func handleLoginRequest(ctx context.Context, p *player.Player, reader *player.Eo
 		`SELECT COUNT(1) FROM bans WHERE account_id = (SELECT id FROM accounts WHERE name = ?)
 		 AND (duration = 0 OR datetime(created_at, '+' || duration || ' minutes') > datetime('now'))`,
 		strings.ToLower(pkt.Username)).Scan(&banCount)
-	if err != nil && err != sql.ErrNoRows {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		slog.Error("error checking ban", "id", p.ID, "err", err)
 	}
 	banned = banCount > 0

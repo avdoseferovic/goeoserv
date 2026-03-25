@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"context"
 	"database/sql"
 	"log/slog"
@@ -132,7 +133,7 @@ func handleAccountAgree(ctx context.Context, p *player.Player, reader *player.Eo
 	err := p.DB.QueryRow(ctx,
 		`SELECT id, name, password_hash FROM accounts WHERE name = ?`,
 		strings.ToLower(pkt.Username)).Scan(&accountID, &username, &passwordHash)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		if p.LoginAttempts >= p.Cfg.Server.MaxLoginAttempts {
 			p.Close()
 			return nil

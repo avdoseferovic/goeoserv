@@ -54,17 +54,10 @@ func handleShopBuy(ctx context.Context, p *player.Player, reader *player.EoReade
 
 	// Calculate cost (1 gold per item as placeholder since shop data files aren't loaded)
 	cost := pkt.BuyItem.Amount
-	gold := p.Inventory[1]
-	if gold < cost {
+	if !p.RemoveItem(1, cost) {
 		return nil
 	}
-
-	// Deduct gold and add item
-	p.Inventory[1] -= cost
-	if p.Inventory[1] <= 0 {
-		delete(p.Inventory, 1)
-	}
-	p.Inventory[pkt.BuyItem.Id] += pkt.BuyItem.Amount
+	p.AddItem(pkt.BuyItem.Id, pkt.BuyItem.Amount)
 
 	return p.Bus.SendPacket(&server.ShopBuyServerPacket{
 		GoldAmount: p.Inventory[1], // item 1 = gold by convention
@@ -84,18 +77,12 @@ func handleShopSell(ctx context.Context, p *player.Player, reader *player.EoRead
 		return nil
 	}
 
-	if p.Inventory[pkt.SellItem.Id] < pkt.SellItem.Amount {
+	if !p.RemoveItem(pkt.SellItem.Id, pkt.SellItem.Amount) {
 		return nil
 	}
 
-	p.Inventory[pkt.SellItem.Id] -= pkt.SellItem.Amount
-	if p.Inventory[pkt.SellItem.Id] <= 0 {
-		delete(p.Inventory, pkt.SellItem.Id)
-	}
-
 	// Add gold based on sell price (1 gold per item as placeholder)
-	sellPrice := pkt.SellItem.Amount
-	p.Inventory[1] += sellPrice
+	p.AddItem(1, pkt.SellItem.Amount)
 
 	return p.Bus.SendPacket(&server.ShopSellServerPacket{
 		SoldItem:   server.ShopSoldItem{Id: pkt.SellItem.Id, Amount: p.Inventory[pkt.SellItem.Id]},

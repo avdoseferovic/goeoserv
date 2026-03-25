@@ -19,11 +19,12 @@ import (
 
 // handleCommand processes a $ admin command. Returns true if the message was a command.
 func handleCommand(ctx context.Context, p *player.Player, message string) bool {
-	if !strings.HasPrefix(message, "$") {
+	cmdStr, ok := strings.CutPrefix(message, "$")
+	if !ok {
 		return false
 	}
 
-	parts := strings.Fields(message[1:])
+	parts := strings.Fields(cmdStr)
 	if len(parts) == 0 {
 		return true
 	}

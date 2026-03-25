@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"context"
 	"database/sql"
 	"log/slog"
@@ -62,7 +63,7 @@ func handlePaperdollRequest(ctx context.Context, p *player.Player, reader *playe
 		&bracer, &bracer2, &gloves, &belt, &necklace,
 		&ring1, &ring2, &armlet1, &armlet2, &accessory)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
 	if err != nil {

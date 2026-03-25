@@ -43,13 +43,7 @@ func handleSpellRequest(ctx context.Context, p *player.Player, reader *player.Eo
 	}
 
 	// Check TP cost (spell level * 5)
-	spellLevel := 1
-	for _, s := range p.Spells {
-		if s.ID == pkt.SpellId {
-			spellLevel = s.Level
-			break
-		}
-	}
+	spellLevel := max(p.GetSpellLevel(pkt.SpellId), 1)
 	tpCost := spellLevel * 5
 	if p.CharTP < tpCost {
 		return nil
@@ -75,13 +69,7 @@ func handleSpellTargetSelf(ctx context.Context, p *player.Player, reader *player
 	}
 
 	// Look up spell level and consume TP
-	spellLevel := 1
-	for _, s := range p.Spells {
-		if s.ID == pkt.SpellId {
-			spellLevel = s.Level
-			break
-		}
-	}
+	spellLevel := max(p.GetSpellLevel(pkt.SpellId), 1)
 	tpCost := spellLevel * 5
 	if p.CharTP < tpCost {
 		return nil
@@ -127,13 +115,7 @@ func handleSpellTargetOther(ctx context.Context, p *player.Player, reader *playe
 	}
 
 	// Look up spell level and consume TP
-	spellLevel := 1
-	for _, s := range p.Spells {
-		if s.ID == pkt.SpellId {
-			spellLevel = s.Level
-			break
-		}
-	}
+	spellLevel := max(p.GetSpellLevel(pkt.SpellId), 1)
 	tpCost := spellLevel * 5
 	if p.CharTP < tpCost {
 		return nil
@@ -169,13 +151,7 @@ func handleSpellTargetGroup(ctx context.Context, p *player.Player, reader *playe
 	}
 
 	// Look up spell level and consume TP
-	spellLevel := 1
-	for _, s := range p.Spells {
-		if s.ID == pkt.SpellId {
-			spellLevel = s.Level
-			break
-		}
-	}
+	spellLevel := max(p.GetSpellLevel(pkt.SpellId), 1)
 	tpCost := spellLevel * 5
 	if p.CharTP < tpCost {
 		return nil

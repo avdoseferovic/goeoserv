@@ -32,7 +32,7 @@ func (m *GameMap) SpawnNPCs(instantSpawn bool) {
 
 	index := 0
 	for _, npcDef := range m.emf.Npcs {
-		for i := 0; i < npcDef.Amount; i++ {
+		for range npcDef.Amount {
 			spawnX, spawnY := npcDef.Coords.X, npcDef.Coords.Y
 			if instantSpawn {
 				spawnX, spawnY = m.findFreeSpawnTile(spawnX, spawnY)

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"context"
 	"database/sql"
 	"fmt"
@@ -34,7 +35,7 @@ func handleInitInit(ctx context.Context, p *player.Player, reader *player.EoRead
 		`SELECT COUNT(1) FROM bans WHERE ip = ?
 		 AND (duration = 0 OR datetime(created_at, '+' || duration || ' minutes') > datetime('now'))`,
 		p.IP).Scan(&banCount)
-	if err != nil && err != sql.ErrNoRows {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		slog.Error("error checking IP ban", "id", p.ID, "err", err)
 	}
 	if banCount > 0 {
@@ -111,7 +112,7 @@ func handleInitInit(ctx context.Context, p *player.Player, reader *player.EoRead
 func compareVersions(a, b string) int {
 	pa := strings.Split(a, ".")
 	pb := strings.Split(b, ".")
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		va, vb := 0, 0
 		if i < len(pa) {
 			va, _ = strconv.Atoi(pa[i])

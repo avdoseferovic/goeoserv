@@ -161,7 +161,7 @@ func (e *Equipment) FindItemType(itemID int) (eopub.ItemType, int) {
 	if e.Necklace == itemID {
 		return eopub.Item_Necklace, 0
 	}
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if e.Ring[i] == itemID {
 			return eopub.Item_Ring, i
 		}
@@ -270,18 +270,10 @@ func (p *Player) CalculateStats() {
 	evade := adjAgi/2 + eqEvade
 	armor := adjCon/2 + eqArmor
 
-	if minDmg < 1 {
-		minDmg = 1
-	}
-	if maxDmg < 1 {
-		maxDmg = 1
-	}
-	if maxHP > 64000 {
-		maxHP = 64000
-	}
-	if maxTP > 64000 {
-		maxTP = 64000
-	}
+	minDmg = max(minDmg, 1)
+	maxDmg = max(maxDmg, 1)
+	maxHP = min(maxHP, 64000)
+	maxTP = min(maxTP, 64000)
 
 	p.CharMaxHP = maxHP
 	p.CharMaxTP = maxTP

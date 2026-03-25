@@ -147,13 +147,8 @@ func handleStatSkillTake(ctx context.Context, p *player.Player, reader *player.E
 	}
 
 	// Deduct gold cost for learning (placeholder: 100 gold per spell)
-	cost := 100
-	if p.Inventory[1] < cost {
+	if !p.RemoveItem(1, 100) {
 		return nil
-	}
-	p.Inventory[1] -= cost
-	if p.Inventory[1] <= 0 {
-		delete(p.Inventory, 1)
 	}
 
 	// Check not already learned

@@ -1,6 +1,7 @@
 package account
 
 import (
+	"errors"
 	"context"
 	"database/sql"
 	"log/slog"
@@ -18,7 +19,7 @@ func Exists(ctx context.Context, database *db.Database, username string) (bool, 
 	err := database.QueryRow(ctx,
 		`SELECT id FROM accounts WHERE name = ?`,
 		strings.ToLower(username)).Scan(&id)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {
@@ -33,7 +34,7 @@ func CharacterExists(ctx context.Context, database *db.Database, name string) (b
 	err := database.QueryRow(ctx,
 		`SELECT id FROM characters WHERE name = ?`,
 		strings.ToLower(name)).Scan(&id)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {

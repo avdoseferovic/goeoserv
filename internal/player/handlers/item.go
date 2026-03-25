@@ -38,7 +38,7 @@ func handleItemGet(ctx context.Context, p *player.Player, reader *player.EoReade
 		return nil
 	}
 
-	p.Inventory[itemID] += amount
+	p.AddItem(itemID, amount)
 
 	return p.Bus.SendPacket(&server.ItemGetServerPacket{
 		TakenItemIndex: pkt.ItemIndex,
@@ -62,13 +62,8 @@ func handleItemDrop(ctx context.Context, p *player.Player, reader *player.EoRead
 	itemID := pkt.Item.Id
 	amount := pkt.Item.Amount
 
-	if p.Inventory[itemID] < amount {
+	if !p.RemoveItem(itemID, amount) {
 		return nil
-	}
-
-	p.Inventory[itemID] -= amount
-	if p.Inventory[itemID] <= 0 {
-		delete(p.Inventory, itemID)
 	}
 
 	dropX, dropY := p.CharX, p.CharY
@@ -107,13 +102,8 @@ func handleItemJunk(ctx context.Context, p *player.Player, reader *player.EoRead
 	itemID := pkt.Item.Id
 	amount := pkt.Item.Amount
 
-	if p.Inventory[itemID] < amount {
+	if !p.RemoveItem(itemID, amount) {
 		return nil
-	}
-
-	p.Inventory[itemID] -= amount
-	if p.Inventory[itemID] <= 0 {
-		delete(p.Inventory, itemID)
 	}
 
 	remaining := p.Inventory[itemID]
@@ -151,24 +141,8 @@ func handleItemUse(ctx context.Context, p *player.Player, reader *player.EoReade
 
 	switch item.Type {
 	case eopub.Item_Heal:
-		hpGain := 0
-		if item.Hp > 0 && p.CharHP < p.CharMaxHP {
-			hpGain = item.Hp
-			p.CharHP += hpGain
-			if p.CharHP > p.CharMaxHP {
-				hpGain -= (p.CharHP - p.CharMaxHP)
-				p.CharHP = p.CharMaxHP
-			}
-		}
-		tpGain := 0
-		if item.Tp > 0 && p.CharTP < p.CharMaxTP {
-			tpGain = item.Tp
-			p.CharTP += tpGain
-			if p.CharTP > p.CharMaxTP {
-				tpGain -= (p.CharTP - p.CharMaxTP)
-				p.CharTP = p.CharMaxTP
-			}
-		}
+		hpGain := p.GainHP(item.Hp)
+		tpGain := p.GainTP(item.Tp)
 		if hpGain == 0 && tpGain == 0 {
 			return nil
 		}
@@ -244,10 +218,7 @@ func handleItemUse(ctx context.Context, p *player.Player, reader *player.EoReade
 		}
 	}
 	if !infinite {
-		p.Inventory[pkt.ItemId]--
-		if p.Inventory[pkt.ItemId] <= 0 {
-			delete(p.Inventory, pkt.ItemId)
-		}
+		p.RemoveItem(pkt.ItemId, 1)
 	}
 
 	p.CalculateStats()

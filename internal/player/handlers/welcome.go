@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"context"
 	"database/sql"
 	"fmt"
@@ -74,7 +75,7 @@ func handleWelcomeRequest(ctx context.Context, p *player.Player, reader *player.
 		&eqArmor, &eqNecklace, &eqHat, &eqShield, &eqWeapon,
 		&eqRing1, &eqRing2, &eqArmlet1, &eqArmlet2,
 		&eqBracer1, &eqBracer2)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		slog.Warn("character not found", "character_id", pkt.CharacterId)
 		p.Close()
 		return nil

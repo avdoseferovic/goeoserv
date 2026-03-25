@@ -91,9 +91,9 @@ func handleQuestAccept(ctx context.Context, p *player.Player, reader *player.EoR
 	for _, rule := range state.Rules {
 		nextState, matched := quest.ProcessRuleWithContext(rule, actionID, questCtx)
 		if matched {
-			if strings.ToLower(nextState) == "goreset" || strings.ToLower(nextState) == "done" {
+			if strings.EqualFold(nextState, "goreset") || strings.EqualFold(nextState, "done") {
 				// Quest reset or completed
-				if strings.ToLower(nextState) == "done" {
+				if strings.EqualFold(nextState, "done") {
 					p.QuestProgress.CompleteQuest(pkt.QuestId)
 					// Execute reward actions from the current state
 					executeQuestRewards(p, state)
@@ -237,12 +237,7 @@ func executeQuestRewards(p *player.Player, state *quest.State) {
 		case "removeitem":
 			// RemoveItem(item_id, amount)
 			if len(action.Args) >= 2 && !action.Args[0].IsStr && !action.Args[1].IsStr {
-				itemID := action.Args[0].IntVal
-				amount := action.Args[1].IntVal
-				p.Inventory[itemID] -= amount
-				if p.Inventory[itemID] <= 0 {
-					delete(p.Inventory, itemID)
-				}
+				p.RemoveItem(action.Args[0].IntVal, action.Args[1].IntVal)
 			}
 		case "setclass":
 			// SetClass(class_id) - placeholder

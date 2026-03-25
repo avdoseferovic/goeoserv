@@ -53,14 +53,8 @@ func handleBankDeposit(ctx context.Context, p *player.Player, reader *player.EoR
 		return nil
 	}
 
-	gold := p.Inventory[1] // gold = item ID 1
-	if pkt.Amount > gold || pkt.Amount <= 0 {
+	if pkt.Amount <= 0 || !p.RemoveItem(1, pkt.Amount) {
 		return nil
-	}
-
-	p.Inventory[1] -= pkt.Amount
-	if p.Inventory[1] <= 0 {
-		delete(p.Inventory, 1)
 	}
 	p.GoldBank += pkt.Amount
 
@@ -91,7 +85,7 @@ func handleBankWithdraw(ctx context.Context, p *player.Player, reader *player.Eo
 	}
 
 	p.GoldBank -= pkt.Amount
-	p.Inventory[1] += pkt.Amount
+	p.AddItem(1, pkt.Amount)
 
 	return p.Bus.SendPacket(&server.BankReplyServerPacket{
 		GoldInventory: p.Inventory[1],
