@@ -218,23 +218,39 @@ func (s *Server) RunPingLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			// Collect player refs under lock, then send outside lock
+			// to avoid blocking all player operations during network I/O.
 			s.mu.Lock()
+			type pingTarget struct {
+				player  *player.Player
+				id      int
+				timedOut bool
+			}
+			targets := make([]pingTarget, 0, len(s.players))
 			for id, p := range s.players {
 				if p.Bus.NeedPong {
-					slog.Info("player timed out (no pong)", "id", id)
-					p.Close()
+					targets = append(targets, pingTarget{player: p, id: id, timedOut: true})
 				} else {
 					p.Bus.NeedPong = true
+					targets = append(targets, pingTarget{player: p, id: id})
+				}
+			}
+			s.mu.Unlock()
+
+			for _, t := range targets {
+				if t.timedOut {
+					slog.Info("player timed out (no pong)", "id", t.id)
+					t.player.Close()
+				} else {
 					seq1, seq2, seqStart := protocol.GeneratePingSequenceBytes()
-					p.Bus.PendingSequenceStart = seqStart
-					p.Bus.HasPendingSequence = true
-					_ = p.Bus.SendPacket(&server.ConnectionPlayerServerPacket{
+					t.player.Bus.PendingSequenceStart = seqStart
+					t.player.Bus.HasPendingSequence = true
+					_ = t.player.Bus.SendPacket(&server.ConnectionPlayerServerPacket{
 						Seq1: seq1,
 						Seq2: seq2,
 					})
 				}
 			}
-			s.mu.Unlock()
 		}
 	}
 }

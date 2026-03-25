@@ -18,17 +18,11 @@ type NpcState struct {
 	SpawnY     int
 	SpawnType  int
 	SpawnTime  int // ticks until respawn
-	Alive      bool
 	HP, MaxHP  int
 	SpawnTicks int // countdown to respawn when dead
 	ActTicks   int // countdown to next action
-	Opponents  []NpcOpponent
-}
-
-// NpcOpponent tracks damage dealt by a player.
-type NpcOpponent struct {
-	PlayerID    int
-	DamageDealt int
+	Alive      bool
+	Opponents  map[int]int // playerID -> damage dealt (O(1) lookup)
 }
 
 // SpawnNPCs creates NPC instances from the EMF map data.
@@ -112,14 +106,8 @@ func (m *GameMap) isTileOccupiedLocked(x, y int) bool {
 
 // isTileWalkableNpcLocked is isTileWalkableNpc without locking (caller must hold mu).
 func (m *GameMap) isTileWalkableNpcLocked(x, y int) bool {
-	for _, row := range m.emf.WarpRows {
-		if row.Y == y {
-			for _, warp := range row.Tiles {
-				if warp.X == x {
-					return false
-				}
-			}
-		}
+	if _, hasWarp := m.warps[[2]int{x, y}]; hasWarp {
+		return false
 	}
 	if spec, ok := m.tiles[[2]int{x, y}]; ok {
 		switch spec {
@@ -195,7 +183,7 @@ func (m *GameMap) GetNpcMapInfos() []server.NpcMapInfo {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	var infos []server.NpcMapInfo
+	infos := make([]server.NpcMapInfo, 0, len(m.npcs))
 	for _, npc := range m.npcs {
 		if npc.Alive {
 			infos = append(infos, server.NpcMapInfo{
@@ -281,15 +269,9 @@ func (m *GameMap) npcRandomWalk(npc *NpcState) bool {
 
 // isTileWalkableNpc checks if an NPC can walk on a tile (walls, chairs, warps, etc. block).
 func (m *GameMap) isTileWalkableNpc(x, y int) bool {
-	// Block on warps
-	for _, row := range m.emf.WarpRows {
-		if row.Y == y {
-			for _, warp := range row.Tiles {
-				if warp.X == x {
-					return false
-				}
-			}
-		}
+	// Use pre-built warps map for O(1) lookup instead of scanning warp rows
+	if _, hasWarp := m.warps[[2]int{x, y}]; hasWarp {
+		return false
 	}
 
 	if spec, ok := m.tiles[[2]int{x, y}]; ok {
@@ -377,21 +359,11 @@ func (m *GameMap) DamageNpc(npcIndex, playerID, damage int) (int, bool, int) {
 		return 0, false, 0
 	}
 
-	// Track opponent
-	found := false
-	for i := range npc.Opponents {
-		if npc.Opponents[i].PlayerID == playerID {
-			npc.Opponents[i].DamageDealt += damage
-			found = true
-			break
-		}
+	// Track opponent with O(1) map lookup
+	if npc.Opponents == nil {
+		npc.Opponents = make(map[int]int)
 	}
-	if !found {
-		npc.Opponents = append(npc.Opponents, NpcOpponent{
-			PlayerID:    playerID,
-			DamageDealt: damage,
-		})
-	}
+	npc.Opponents[playerID] += damage
 
 	npc.HP -= damage
 	if npc.HP <= 0 {

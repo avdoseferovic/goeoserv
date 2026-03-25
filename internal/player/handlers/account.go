@@ -20,7 +20,7 @@ func init() {
 }
 
 // handleAccountRequest handles the pre-creation check (does account exist?).
-func handleAccountRequest(p *player.Player, reader *player.EoReader) error {
+func handleAccountRequest(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	var pkt client.AccountRequestClientPacket
 	if err := pkt.Deserialize(reader); err != nil {
 		slog.Error("failed to deserialize account request", "id", p.ID, "err", err)
@@ -31,7 +31,7 @@ func handleAccountRequest(p *player.Player, reader *player.EoReader) error {
 		return nil
 	}
 
-	exists, err := account.Exists(p.DB, pkt.Username)
+	exists, err := account.Exists(ctx, p.DB, pkt.Username)
 	if err != nil {
 		slog.Error("error checking account exists", "id", p.ID, "err", err)
 		p.Close()
@@ -56,7 +56,7 @@ func handleAccountRequest(p *player.Player, reader *player.EoReader) error {
 }
 
 // handleAccountCreate creates a new account.
-func handleAccountCreate(p *player.Player, reader *player.EoReader) error {
+func handleAccountCreate(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	var pkt client.AccountCreateClientPacket
 	if err := pkt.Deserialize(reader); err != nil {
 		slog.Error("failed to deserialize account create", "id", p.ID, "err", err)
@@ -74,7 +74,7 @@ func handleAccountCreate(p *player.Player, reader *player.EoReader) error {
 		return nil
 	}
 
-	exists, err := account.Exists(p.DB, pkt.Username)
+	exists, err := account.Exists(ctx, p.DB, pkt.Username)
 	if err != nil {
 		slog.Error("error checking account exists", "id", p.ID, "err", err)
 		p.Close()
@@ -90,7 +90,7 @@ func handleAccountCreate(p *player.Player, reader *player.EoReader) error {
 
 	passwordHash := account.HashPassword(pkt.Username, pkt.Password)
 
-	result, err := p.DB.DB().ExecContext(context.Background(),
+	result, err := p.DB.DB().ExecContext(ctx,
 		`INSERT INTO accounts (name, password_hash, real_name, location, email, computer, hdid)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		strings.ToLower(pkt.Username), passwordHash, pkt.FullName, pkt.Location,
@@ -113,7 +113,7 @@ func handleAccountCreate(p *player.Player, reader *player.EoReader) error {
 }
 
 // handleAccountAgree handles password change.
-func handleAccountAgree(p *player.Player, reader *player.EoReader) error {
+func handleAccountAgree(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	var pkt client.AccountAgreeClientPacket
 	if err := pkt.Deserialize(reader); err != nil {
 		slog.Error("failed to deserialize account agree", "id", p.ID, "err", err)
@@ -129,7 +129,7 @@ func handleAccountAgree(p *player.Player, reader *player.EoReader) error {
 	// Verify account exists
 	var accountID int
 	var username, passwordHash string
-	err := p.DB.QueryRow(context.Background(),
+	err := p.DB.QueryRow(ctx,
 		`SELECT id, name, password_hash FROM accounts WHERE name = ?`,
 		strings.ToLower(pkt.Username)).Scan(&accountID, &username, &passwordHash)
 	if err == sql.ErrNoRows {
@@ -164,7 +164,7 @@ func handleAccountAgree(p *player.Player, reader *player.EoReader) error {
 	p.LoginAttempts = 0
 	newHash := account.HashPassword(username, pkt.NewPassword)
 
-	if err := p.DB.Execute(context.Background(),
+	if err := p.DB.Execute(ctx,
 		`UPDATE accounts SET password_hash = ? WHERE id = ?`, newHash, accountID); err != nil {
 		slog.Error("error updating password", "id", p.ID, "err", err)
 		p.Close()

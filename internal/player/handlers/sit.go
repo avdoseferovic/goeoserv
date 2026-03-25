@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/avdo/goeoserv/internal/player"
@@ -15,7 +16,7 @@ func init() {
 	player.Register(eonet.PacketFamily_Chair, eonet.PacketAction_Request, handleChairRequest)
 }
 
-func handleSitRequest(p *player.Player, reader *player.EoReader) error {
+func handleSitRequest(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil {
 		return nil
 	}
@@ -36,7 +37,7 @@ func handleSitRequest(p *player.Player, reader *player.EoReader) error {
 	return nil
 }
 
-func handleChairRequest(p *player.Player, reader *player.EoReader) error {
+func handleChairRequest(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil {
 		return nil
 	}

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/avdo/goeoserv/internal/player"
@@ -33,7 +34,7 @@ type pendingInvite struct {
 // Pending invites: invitedPlayerID -> inviter info
 var pendingInvites = make(map[int]pendingInvite)
 
-func handlePartyRequest(p *player.Player, reader *player.EoReader) error {
+func handlePartyRequest(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil {
 		return nil
 	}
@@ -67,7 +68,7 @@ func handlePartyRequest(p *player.Player, reader *player.EoReader) error {
 	return nil
 }
 
-func handlePartyAccept(p *player.Player, reader *player.EoReader) error {
+func handlePartyAccept(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil {
 		return nil
 	}
@@ -119,7 +120,7 @@ func handlePartyAccept(p *player.Player, reader *player.EoReader) error {
 	return nil
 }
 
-func handlePartyRemove(p *player.Player, reader *player.EoReader) error {
+func handlePartyRemove(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}
@@ -140,7 +141,7 @@ func handlePartyRemove(p *player.Player, reader *player.EoReader) error {
 }
 
 // handlePartyTake — request party member list update
-func handlePartyTake(p *player.Player, reader *player.EoReader) error {
+func handlePartyTake(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}

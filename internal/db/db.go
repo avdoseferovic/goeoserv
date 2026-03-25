@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/avdo/goeoserv/internal/config"
 
@@ -36,6 +37,12 @@ func New(cfg config.Database) (*Database, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening database: %w", err)
 	}
+
+	// Configure connection pool to prevent resource exhaustion
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(10)
+	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetConnMaxIdleTime(1 * time.Minute)
 
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("connecting to database: %w", err)

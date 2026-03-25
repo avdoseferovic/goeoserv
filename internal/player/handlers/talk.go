@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"log/slog"
 	"strings"
 
@@ -21,7 +22,7 @@ func init() {
 }
 
 // handleTalkLocal — local chat visible to same map
-func handleTalkLocal(p *player.Player, reader *player.EoReader) error {
+func handleTalkLocal(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil {
 		return nil
 	}
@@ -33,7 +34,7 @@ func handleTalkLocal(p *player.Player, reader *player.EoReader) error {
 	}
 
 	// Check for admin commands
-	if handleCommand(p, pkt.Message) {
+	if handleCommand(ctx, p, pkt.Message) {
 		return nil
 	}
 
@@ -45,7 +46,7 @@ func handleTalkLocal(p *player.Player, reader *player.EoReader) error {
 }
 
 // handleTalkGlobal — global chat visible to all maps
-func handleTalkGlobal(p *player.Player, reader *player.EoReader) error {
+func handleTalkGlobal(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil {
 		return nil
 	}
@@ -64,7 +65,7 @@ func handleTalkGlobal(p *player.Player, reader *player.EoReader) error {
 }
 
 // handleTalkPrivate — private message to a specific player
-func handleTalkPrivate(p *player.Player, reader *player.EoReader) error {
+func handleTalkPrivate(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil {
 		return nil
 	}
@@ -92,7 +93,7 @@ func handleTalkPrivate(p *player.Player, reader *player.EoReader) error {
 }
 
 // handleTalkAdmin — admin chat (visible to all admins)
-func handleTalkAdmin(p *player.Player, reader *player.EoReader) error {
+func handleTalkAdmin(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil {
 		return nil
 	}
@@ -115,7 +116,7 @@ func handleTalkAdmin(p *player.Player, reader *player.EoReader) error {
 }
 
 // handleTalkAnnounce — server announcement (admin only)
-func handleTalkAnnounce(p *player.Player, reader *player.EoReader) error {
+func handleTalkAnnounce(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil {
 		return nil
 	}
@@ -138,7 +139,7 @@ func handleTalkAnnounce(p *player.Player, reader *player.EoReader) error {
 }
 
 // handleTalkParty — party chat
-func handleTalkParty(p *player.Player, reader *player.EoReader) error {
+func handleTalkParty(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil {
 		return nil
 	}
@@ -157,7 +158,7 @@ func handleTalkParty(p *player.Player, reader *player.EoReader) error {
 }
 
 // handleTalkGuild — guild chat
-func handleTalkGuild(p *player.Player, reader *player.EoReader) error {
+func handleTalkGuild(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil {
 		return nil
 	}

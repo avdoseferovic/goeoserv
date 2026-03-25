@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 
 	"github.com/ethanmoffat/eolib-go/v3/data"
 	eopub "github.com/ethanmoffat/eolib-go/v3/protocol/pub"
@@ -17,7 +18,18 @@ var (
 	SpellDB *eopub.Esf
 	ClassDB *eopub.Ecf
 	DropDB  *eopubsrv.DropFile
+
+	// npcDropIndex provides O(1) lookup for NPC drop tables.
+	npcDropIndex map[int][]eopubsrv.DropRecord
+
+	// mapMetaCache caches map RID and file size to avoid disk I/O per login.
+	mapMetaCache   map[int]mapMeta
 )
+
+type mapMeta struct {
+	rid  []int
+	size int
+}
 
 // LoadAll loads all pub files from the data/pub directory.
 func LoadAll() error {
@@ -55,6 +67,16 @@ func LoadAll() error {
 		slog.Info("EDF loaded", "npc_drop_tables", len(DropDB.Npcs))
 	}
 
+	// Build O(1) NPC drop index
+	npcDropIndex = make(map[int][]eopubsrv.DropRecord, len(DropDB.Npcs))
+	for _, npc := range DropDB.Npcs {
+		npcDropIndex[npc.NpcId] = npc.Drops
+	}
+
+	// Cache map metadata to avoid disk reads on login
+	mapMetaCache = make(map[int]mapMeta)
+	loadMapMetaCache()
+
 	return nil
 }
 
@@ -90,17 +112,9 @@ func GetClass(id int) *eopub.EcfRecord {
 	return &ClassDB.Classes[id-1]
 }
 
-// GetNpcDrops returns the drop records for an NPC, or nil.
+// GetNpcDrops returns the drop records for an NPC using O(1) index lookup.
 func GetNpcDrops(npcID int) []eopubsrv.DropRecord {
-	if DropDB == nil {
-		return nil
-	}
-	for _, npc := range DropDB.Npcs {
-		if npc.NpcId == npcID {
-			return npc.Drops
-		}
-	}
-	return nil
+	return npcDropIndex[npcID]
 }
 
 // Pub file RID/length helpers for welcome packets.
@@ -162,22 +176,54 @@ func EcfLength() int {
 }
 
 func MapRid(mapID int) []int {
-	path := fmt.Sprintf("data/maps/%05d.emf", mapID)
-	raw, err := os.ReadFile(path)
-	if err != nil || len(raw) < 4 {
-		return []int{0, 0}
+	if m, ok := mapMetaCache[mapID]; ok {
+		return m.rid
 	}
-	// EMF rid is the first 4 bytes decoded as two shorts
-	return []int{int(raw[0]) | int(raw[1])<<8, int(raw[2]) | int(raw[3])<<8}
+	return []int{0, 0}
 }
 
 func MapFileSize(mapID int) int {
-	path := fmt.Sprintf("data/maps/%05d.emf", mapID)
-	info, err := os.Stat(path)
-	if err != nil {
-		return 0
+	if m, ok := mapMetaCache[mapID]; ok {
+		return m.size
 	}
-	return int(info.Size())
+	return 0
+}
+
+func loadMapMetaCache() {
+	entries, err := os.ReadDir("data/maps")
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if len(name) < 5 {
+			continue
+		}
+		ext := name[len(name)-4:]
+		if ext != ".emf" && ext != ".EMF" {
+			continue
+		}
+		base := name[:len(name)-4]
+		id, err := strconv.Atoi(base)
+		if err != nil {
+			continue
+		}
+		path := fmt.Sprintf("data/maps/%s", name)
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var rid []int
+		if len(raw) >= 4 {
+			rid = []int{int(raw[0]) | int(raw[1])<<8, int(raw[2]) | int(raw[3])<<8}
+		} else {
+			rid = []int{0, 0}
+		}
+		mapMetaCache[id] = mapMeta{rid: rid, size: len(raw)}
+	}
 }
 
 // ItemGraphicID returns the display graphic for a visible equipment item.

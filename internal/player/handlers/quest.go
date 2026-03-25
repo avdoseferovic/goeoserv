@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"log/slog"
 	"strings"
 
@@ -18,7 +19,7 @@ func init() {
 }
 
 // handleQuestUse — player talks to a quest NPC
-func handleQuestUse(p *player.Player, reader *player.EoReader) error {
+func handleQuestUse(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}
@@ -47,7 +48,7 @@ func handleQuestUse(p *player.Player, reader *player.EoReader) error {
 }
 
 // handleQuestAccept — player responds to a quest dialog
-func handleQuestAccept(p *player.Player, reader *player.EoReader) error {
+func handleQuestAccept(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}
@@ -118,7 +119,7 @@ func handleQuestAccept(p *player.Player, reader *player.EoReader) error {
 }
 
 // handleQuestList — player views quest progress or history
-func handleQuestList(p *player.Player, reader *player.EoReader) error {
+func handleQuestList(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}

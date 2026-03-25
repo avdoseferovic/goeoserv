@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"log/slog"
 	"math"
 	"math/rand/v2"
@@ -19,7 +20,7 @@ func init() {
 	player.Register(eonet.PacketFamily_Attack, eonet.PacketAction_Use, handleAttackUse)
 }
 
-func handleAttackUse(p *player.Player, reader *player.EoReader) error {
+func handleAttackUse(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil {
 		return nil
 	}

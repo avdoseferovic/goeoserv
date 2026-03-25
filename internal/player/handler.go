@@ -1,6 +1,8 @@
 package player
 
 import (
+	"context"
+
 	"github.com/avdo/goeoserv/internal/protocol"
 	eonet "github.com/ethanmoffat/eolib-go/v3/protocol/net"
 )
@@ -9,7 +11,8 @@ import (
 type EoReader = protocol.EoReader
 
 // HandlerFunc is the signature for all packet handlers.
-type HandlerFunc func(p *Player, reader *EoReader) error
+// ctx is derived from the player's connection lifetime — use it for DB queries.
+type HandlerFunc func(ctx context.Context, p *Player, reader *EoReader) error
 
 // handlers is the global handler registry keyed by [family][action].
 var handlers = make(map[eonet.PacketFamily]map[eonet.PacketAction]HandlerFunc)

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/avdo/goeoserv/internal/player"
@@ -18,7 +19,7 @@ func init() {
 }
 
 // handleStatSkillOpen opens the skill master dialog.
-func handleStatSkillOpen(p *player.Player, reader *player.EoReader) error {
+func handleStatSkillOpen(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}
@@ -39,7 +40,7 @@ func handleStatSkillOpen(p *player.Player, reader *player.EoReader) error {
 }
 
 // handleStatSkillAdd handles stat point allocation or skill point spending.
-func handleStatSkillAdd(p *player.Player, reader *player.EoReader) error {
+func handleStatSkillAdd(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}
@@ -129,7 +130,7 @@ func handleStatSkillAdd(p *player.Player, reader *player.EoReader) error {
 }
 
 // handleStatSkillTake learns a new spell from the skill master.
-func handleStatSkillTake(p *player.Player, reader *player.EoReader) error {
+func handleStatSkillTake(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}
@@ -171,7 +172,7 @@ func handleStatSkillTake(p *player.Player, reader *player.EoReader) error {
 }
 
 // handleStatSkillRemove forgets a spell.
-func handleStatSkillRemove(p *player.Player, reader *player.EoReader) error {
+func handleStatSkillRemove(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}
@@ -195,7 +196,7 @@ func handleStatSkillRemove(p *player.Player, reader *player.EoReader) error {
 }
 
 // handleStatSkillJunk resets stats (full stat/skill reset).
-func handleStatSkillJunk(p *player.Player, reader *player.EoReader) error {
+func handleStatSkillJunk(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}

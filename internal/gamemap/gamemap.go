@@ -203,15 +203,21 @@ func (m *GameMap) Face(playerID int, direction int) {
 }
 
 // Broadcast sends a packet to all players on this map except excludeID.
+// Collects player bus refs under lock, then sends outside the lock
+// to avoid blocking map operations during network I/O.
 func (m *GameMap) Broadcast(excludeID int, pkt eonet.Packet) {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
+	buses := make([]*protocol.PacketBus, 0, len(m.players))
 	for pid, ch := range m.players {
-		if pid == excludeID {
-			continue
+		if pid != excludeID {
+			buses = append(buses, ch.Bus)
 		}
-		if err := ch.Bus.SendPacket(pkt); err != nil {
-			slog.Debug("broadcast send error", "player_id", pid, "err", err)
+	}
+	m.mu.RUnlock()
+
+	for _, bus := range buses {
+		if err := bus.SendPacket(pkt); err != nil {
+			slog.Debug("broadcast send error", "err", err)
 		}
 	}
 }
@@ -231,7 +237,7 @@ func (m *GameMap) GetNearbyInfo() server.NearbyInfo {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	var chars []server.CharacterMapInfo
+	chars := make([]server.CharacterMapInfo, 0, len(m.players))
 	for _, ch := range m.players {
 		chars = append(chars, m.buildCharMapInfo(ch))
 	}
@@ -273,9 +279,13 @@ func (m *GameMap) Tick() {
 }
 
 func (m *GameMap) tickRecovery() {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	type recoveryUpdate struct {
+		bus    *protocol.PacketBus
+		hp, tp int
+	}
 
+	m.mu.Lock()
+	updates := make([]recoveryUpdate, 0, len(m.players))
 	for _, ch := range m.players {
 		changed := false
 		if ch.HP < ch.MaxHP {
@@ -293,20 +303,26 @@ func (m *GameMap) tickRecovery() {
 			changed = true
 		}
 		if changed {
-			_ = ch.Bus.SendPacket(&server.RecoverPlayerServerPacket{
-				Hp: ch.HP,
-				Tp: ch.TP,
-			})
+			updates = append(updates, recoveryUpdate{bus: ch.Bus, hp: ch.HP, tp: ch.TP})
 		}
+	}
+	m.mu.Unlock()
+
+	for _, u := range updates {
+		_ = u.bus.SendPacket(&server.RecoverPlayerServerPacket{Hp: u.hp, Tp: u.tp})
 	}
 }
 
 // tickSpikes applies damage to players standing on spike tiles.
 func (m *GameMap) tickSpikes() {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	type spikeUpdate struct {
+		bus    *protocol.PacketBus
+		hp, tp int
+	}
 
+	m.mu.Lock()
 	if len(m.players) == 0 {
+		m.mu.Unlock()
 		return
 	}
 
@@ -315,6 +331,7 @@ func (m *GameMap) tickSpikes() {
 		spikeDmgPct = 0.1 // default 10%
 	}
 
+	var updates []spikeUpdate
 	for _, ch := range m.players {
 		spec, ok := m.tiles[[2]int{ch.X, ch.Y}]
 		if !ok {
@@ -334,27 +351,35 @@ func (m *GameMap) tickSpikes() {
 			continue
 		}
 		ch.HP -= damage
-		_ = ch.Bus.SendPacket(&server.RecoverPlayerServerPacket{
-			Hp: ch.HP,
-			Tp: ch.TP,
-		})
+		updates = append(updates, spikeUpdate{bus: ch.Bus, hp: ch.HP, tp: ch.TP})
+	}
+	m.mu.Unlock()
+
+	for _, u := range updates {
+		_ = u.bus.SendPacket(&server.RecoverPlayerServerPacket{Hp: u.hp, Tp: u.tp})
 	}
 }
 
 // tickDrain applies HP or TP drain on drain-effect maps.
 func (m *GameMap) tickDrain() {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	type drainUpdate struct {
+		bus    *protocol.PacketBus
+		hp, tp int
+	}
 
+	m.mu.Lock()
 	if len(m.players) == 0 {
+		m.mu.Unlock()
 		return
 	}
 
 	timedEffect := m.emf.TimedEffect
+	var updates []drainUpdate
 
 	if timedEffect == eomap.MapTimedEffect_HpDrain {
 		dmgPct := m.cfg.World.DrainHPDamage
 		if dmgPct <= 0 {
+			m.mu.Unlock()
 			return
 		}
 		for _, ch := range m.players {
@@ -369,16 +394,14 @@ func (m *GameMap) tickDrain() {
 				continue
 			}
 			ch.HP -= damage
-			_ = ch.Bus.SendPacket(&server.RecoverPlayerServerPacket{
-				Hp: ch.HP,
-				Tp: ch.TP,
-			})
+			updates = append(updates, drainUpdate{bus: ch.Bus, hp: ch.HP, tp: ch.TP})
 		}
 	}
 
 	if timedEffect == eomap.MapTimedEffect_TpDrain {
 		dmgPct := m.cfg.World.DrainTPDamage
 		if dmgPct <= 0 {
+			m.mu.Unlock()
 			return
 		}
 		for _, ch := range m.players {
@@ -396,11 +419,13 @@ func (m *GameMap) tickDrain() {
 				continue
 			}
 			ch.TP -= damage
-			_ = ch.Bus.SendPacket(&server.RecoverPlayerServerPacket{
-				Hp: ch.HP,
-				Tp: ch.TP,
-			})
+			updates = append(updates, drainUpdate{bus: ch.Bus, hp: ch.HP, tp: ch.TP})
 		}
+	}
+	m.mu.Unlock()
+
+	for _, u := range updates {
+		_ = u.bus.SendPacket(&server.RecoverPlayerServerPacket{Hp: u.hp, Tp: u.tp})
 	}
 }
 
@@ -431,7 +456,7 @@ func (m *GameMap) PlayerCount() int {
 }
 
 func (m *GameMap) getGroundItemInfosLocked() []server.ItemMapInfo {
-	var infos []server.ItemMapInfo
+	infos := make([]server.ItemMapInfo, 0, len(m.groundItems))
 	for _, item := range m.groundItems {
 		infos = append(infos, server.ItemMapInfo{
 			Uid:    item.UID,
@@ -444,7 +469,7 @@ func (m *GameMap) getGroundItemInfosLocked() []server.ItemMapInfo {
 }
 
 func (m *GameMap) getNpcMapInfosLocked() []server.NpcMapInfo {
-	var infos []server.NpcMapInfo
+	infos := make([]server.NpcMapInfo, 0, len(m.npcs))
 	for _, npc := range m.npcs {
 		if npc.Alive {
 			infos = append(infos, server.NpcMapInfo{
@@ -460,13 +485,12 @@ func (m *GameMap) getNpcMapInfosLocked() []server.NpcMapInfo {
 
 func (m *GameMap) broadcastNpcPositions() {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	if len(m.players) == 0 {
+		m.mu.RUnlock()
 		return
 	}
 
-	var positions []server.NpcUpdatePosition
+	positions := make([]server.NpcUpdatePosition, 0, len(m.npcs))
 	for _, npc := range m.npcs {
 		if npc.Alive {
 			positions = append(positions, server.NpcUpdatePosition{
@@ -478,12 +502,19 @@ func (m *GameMap) broadcastNpcPositions() {
 	}
 
 	if len(positions) == 0 {
+		m.mu.RUnlock()
 		return
 	}
 
-	pkt := &server.NpcPlayerServerPacket{Positions: positions}
+	buses := make([]*protocol.PacketBus, 0, len(m.players))
 	for _, ch := range m.players {
-		_ = ch.Bus.SendPacket(pkt)
+		buses = append(buses, ch.Bus)
+	}
+	m.mu.RUnlock()
+
+	pkt := &server.NpcPlayerServerPacket{Positions: positions}
+	for _, bus := range buses {
+		_ = bus.SendPacket(pkt)
 	}
 }
 
@@ -545,12 +576,16 @@ func (m *GameMap) GetOnlinePlayers() []OnlinePlayerInfo {
 // BroadcastToAdmins sends a packet to players with admin level >= minAdmin.
 func (m *GameMap) BroadcastToAdmins(excludeID int, minAdmin int, pkt eonet.Packet) {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
+	buses := make([]*protocol.PacketBus, 0, len(m.players))
 	for pid, ch := range m.players {
-		if pid == excludeID || ch.Admin < minAdmin {
-			continue
+		if pid != excludeID && ch.Admin >= minAdmin {
+			buses = append(buses, ch.Bus)
 		}
-		_ = ch.Bus.SendPacket(pkt)
+	}
+	m.mu.RUnlock()
+
+	for _, bus := range buses {
+		_ = bus.SendPacket(pkt)
 	}
 }
 
@@ -674,12 +709,16 @@ func (m *GameMap) TakeChestItem(x, y, itemID int) (int, []ChestItem) {
 // BroadcastToGuild sends a packet to players in the specified guild.
 func (m *GameMap) BroadcastToGuild(excludeID int, guildTag string, pkt eonet.Packet) {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
+	buses := make([]*protocol.PacketBus, 0, len(m.players))
 	for pid, ch := range m.players {
-		if pid == excludeID || ch.GuildTag != guildTag {
-			continue
+		if pid != excludeID && ch.GuildTag == guildTag {
+			buses = append(buses, ch.Bus)
 		}
-		_ = ch.Bus.SendPacket(pkt)
+	}
+	m.mu.RUnlock()
+
+	for _, bus := range buses {
+		_ = bus.SendPacket(pkt)
 	}
 }
 

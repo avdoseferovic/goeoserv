@@ -20,7 +20,7 @@ func init() {
 	player.Register(eonet.PacketFamily_Init, eonet.PacketAction_Init, handleInitInit)
 }
 
-func handleInitInit(p *player.Player, reader *player.EoReader) error {
+func handleInitInit(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	var pkt client.InitInitClientPacket
 	if err := pkt.Deserialize(reader); err != nil {
 		slog.Error("failed to deserialize init packet", "id", p.ID, "err", err)
@@ -30,7 +30,7 @@ func handleInitInit(p *player.Player, reader *player.EoReader) error {
 
 	// Check IP bans
 	var banCount int
-	err := p.DB.QueryRow(context.Background(),
+	err := p.DB.QueryRow(ctx,
 		`SELECT COUNT(1) FROM bans WHERE ip = ?
 		 AND (duration = 0 OR datetime(created_at, '+' || duration || ' minutes') > datetime('now'))`,
 		p.IP).Scan(&banCount)

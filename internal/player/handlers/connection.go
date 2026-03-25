@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/avdo/goeoserv/internal/player"
@@ -13,7 +14,7 @@ func init() {
 	player.Register(eonet.PacketFamily_Connection, eonet.PacketAction_Ping, handleConnectionPing)
 }
 
-func handleConnectionAccept(p *player.Player, reader *player.EoReader) error {
+func handleConnectionAccept(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	var pkt client.ConnectionAcceptClientPacket
 	if err := pkt.Deserialize(reader); err != nil {
 		slog.Error("failed to deserialize connection accept", "id", p.ID, "err", err)
@@ -40,7 +41,7 @@ func handleConnectionAccept(p *player.Player, reader *player.EoReader) error {
 	return nil
 }
 
-func handleConnectionPing(p *player.Player, _ *player.EoReader) error {
+func handleConnectionPing(ctx context.Context, p *player.Player, _ *player.EoReader) error {
 	// Client responded to our ping (sequence reset handled in player loop)
 	p.Bus.NeedPong = false
 	return nil

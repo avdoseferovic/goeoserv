@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"context"
+
 	"github.com/avdo/goeoserv/internal/player"
 	eonet "github.com/ethanmoffat/eolib-go/v3/protocol/net"
 )
@@ -11,6 +13,6 @@ func init() {
 	player.Register(eonet.PacketFamily_Global, eonet.PacketAction_Close, handleGlobalNoop)
 }
 
-func handleGlobalNoop(_ *player.Player, _ *player.EoReader) error {
+func handleGlobalNoop(_ context.Context, _ *player.Player, _ *player.EoReader) error {
 	return nil
 }

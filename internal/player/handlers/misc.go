@@ -75,7 +75,7 @@ func init() {
 }
 
 // Barber
-func handleBarberOpen(p *player.Player, reader *player.EoReader) error {
+func handleBarberOpen(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}
@@ -87,7 +87,7 @@ func handleBarberOpen(p *player.Player, reader *player.EoReader) error {
 	return p.Bus.SendPacket(&server.BarberOpenServerPacket{SessionId: sessionID})
 }
 
-func handleBarberBuy(p *player.Player, reader *player.EoReader) error {
+func handleBarberBuy(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}
@@ -140,18 +140,18 @@ func handleBarberBuy(p *player.Player, reader *player.EoReader) error {
 }
 
 // Jukebox
-func handleJukeboxOpen(p *player.Player, _ *player.EoReader) error {
+func handleJukeboxOpen(ctx context.Context, p *player.Player, _ *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}
 	return p.Bus.SendPacket(&server.JukeboxOpenServerPacket{MapId: p.MapID})
 }
 
-func handleJukeboxMsg(_ *player.Player, _ *player.EoReader) error { return nil }
-func handleJukeboxUse(_ *player.Player, _ *player.EoReader) error { return nil }
+func handleJukeboxMsg(_ context.Context, _ *player.Player, _ *player.EoReader) error { return nil }
+func handleJukeboxUse(_ context.Context, _ *player.Player, _ *player.EoReader) error { return nil }
 
 // Board
-func handleBoardOpen(p *player.Player, reader *player.EoReader) error {
+func handleBoardOpen(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}
@@ -160,7 +160,7 @@ func handleBoardOpen(p *player.Player, reader *player.EoReader) error {
 		return nil
 	}
 
-	posts, err := queryBoardPosts(p, pkt.BoardId)
+	posts, err := queryBoardPosts(ctx, p, pkt.BoardId)
 	if err != nil {
 		slog.Error("board open query failed", "board_id", pkt.BoardId, "err", err)
 		return nil
@@ -172,7 +172,7 @@ func handleBoardOpen(p *player.Player, reader *player.EoReader) error {
 	})
 }
 
-func handleBoardTake(p *player.Player, reader *player.EoReader) error {
+func handleBoardTake(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}
@@ -182,7 +182,7 @@ func handleBoardTake(p *player.Player, reader *player.EoReader) error {
 	}
 
 	var author, subject, body string
-	err := p.DB.QueryRow(context.Background(),
+	err := p.DB.QueryRow(ctx,
 		`SELECT c.name, bp.subject, bp.body FROM board_posts bp JOIN characters c ON bp.character_id = c.id WHERE bp.id = ?`,
 		pkt.PostId).Scan(&author, &subject, &body)
 	if err != nil {
@@ -196,7 +196,7 @@ func handleBoardTake(p *player.Player, reader *player.EoReader) error {
 	})
 }
 
-func handleBoardCreate(p *player.Player, reader *player.EoReader) error {
+func handleBoardCreate(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}
@@ -208,7 +208,7 @@ func handleBoardCreate(p *player.Player, reader *player.EoReader) error {
 		return nil
 	}
 
-	err := p.DB.Execute(context.Background(),
+	err := p.DB.Execute(ctx,
 		`INSERT INTO board_posts (board_id, character_id, subject, body) VALUES (?, ?, ?, ?)`,
 		pkt.BoardId, *p.CharacterID, pkt.PostSubject, pkt.PostBody)
 	if err != nil {
@@ -216,7 +216,7 @@ func handleBoardCreate(p *player.Player, reader *player.EoReader) error {
 		return nil
 	}
 
-	posts, err := queryBoardPosts(p, pkt.BoardId)
+	posts, err := queryBoardPosts(ctx, p, pkt.BoardId)
 	if err != nil {
 		slog.Error("board create re-query failed", "board_id", pkt.BoardId, "err", err)
 		return nil
@@ -228,7 +228,7 @@ func handleBoardCreate(p *player.Player, reader *player.EoReader) error {
 	})
 }
 
-func handleBoardRemove(p *player.Player, reader *player.EoReader) error {
+func handleBoardRemove(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}
@@ -242,7 +242,7 @@ func handleBoardRemove(p *player.Player, reader *player.EoReader) error {
 
 	// Only allow if the post belongs to this character or they are an admin
 	var ownerID int
-	err := p.DB.QueryRow(context.Background(),
+	err := p.DB.QueryRow(ctx,
 		`SELECT character_id FROM board_posts WHERE id = ?`, pkt.PostId).Scan(&ownerID)
 	if err != nil {
 		return nil
@@ -251,13 +251,13 @@ func handleBoardRemove(p *player.Player, reader *player.EoReader) error {
 		return nil
 	}
 
-	_ = p.DB.Execute(context.Background(),
+	_ = p.DB.Execute(ctx,
 		`DELETE FROM board_posts WHERE id = ?`, pkt.PostId)
 	return nil
 }
 
-func queryBoardPosts(p *player.Player, boardID int) ([]server.BoardPostListing, error) {
-	rows, err := p.DB.Query(context.Background(),
+func queryBoardPosts(ctx context.Context, p *player.Player, boardID int) ([]server.BoardPostListing, error) {
+	rows, err := p.DB.Query(ctx,
 		`SELECT bp.id, c.name, bp.subject FROM board_posts bp JOIN characters c ON bp.character_id = c.id WHERE bp.board_id = ? ORDER BY bp.created_at DESC LIMIT ?`,
 		boardID, p.Cfg.Board.MaxPosts)
 	if err != nil {
@@ -281,7 +281,7 @@ func queryBoardPosts(p *player.Player, boardID int) ([]server.BoardPostListing, 
 }
 
 // Players list (online users)
-func handlePlayersRequest(p *player.Player, _ *player.EoReader) error {
+func handlePlayersRequest(ctx context.Context, p *player.Player, _ *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}
@@ -310,7 +310,7 @@ func handlePlayersRequest(p *player.Player, _ *player.EoReader) error {
 }
 
 // Warp accept — client acknowledges a map change
-func handleWarpAccept(p *player.Player, reader *player.EoReader) error {
+func handleWarpAccept(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}
@@ -363,8 +363,8 @@ func handleWarpAccept(p *player.Player, reader *player.EoReader) error {
 
 // Locker (bank item storage)
 
-func queryLockerItems(p *player.Player) ([]eonet.ThreeItem, error) {
-	rows, err := p.DB.Query(context.Background(),
+func queryLockerItems(ctx context.Context, p *player.Player) ([]eonet.ThreeItem, error) {
+	rows, err := p.DB.Query(ctx,
 		"SELECT item_id, quantity FROM character_bank WHERE character_id = ?", *p.CharacterID)
 	if err != nil {
 		return nil, err
@@ -386,7 +386,7 @@ func queryLockerItems(p *player.Player) ([]eonet.ThreeItem, error) {
 	return items, rows.Err()
 }
 
-func handleLockerOpen(p *player.Player, reader *player.EoReader) error {
+func handleLockerOpen(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.CharacterID == nil {
 		return nil
 	}
@@ -395,7 +395,7 @@ func handleLockerOpen(p *player.Player, reader *player.EoReader) error {
 		return nil
 	}
 
-	items, err := queryLockerItems(p)
+	items, err := queryLockerItems(ctx, p)
 	if err != nil {
 		slog.Error("locker open query failed", "id", p.ID, "err", err)
 		return nil
@@ -407,7 +407,7 @@ func handleLockerOpen(p *player.Player, reader *player.EoReader) error {
 	})
 }
 
-func handleLockerAdd(p *player.Player, reader *player.EoReader) error {
+func handleLockerAdd(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.CharacterID == nil {
 		return nil
 	}
@@ -434,7 +434,7 @@ func handleLockerAdd(p *player.Player, reader *player.EoReader) error {
 	}
 
 	// Insert/update bank
-	err := p.DB.Execute(context.Background(),
+	err := p.DB.Execute(ctx,
 		`INSERT INTO character_bank (character_id, item_id, quantity) VALUES (?, ?, ?)
 		ON CONFLICT(character_id, item_id) DO UPDATE SET quantity = quantity + ?`,
 		*p.CharacterID, itemID, amount, amount)
@@ -445,7 +445,7 @@ func handleLockerAdd(p *player.Player, reader *player.EoReader) error {
 		return nil
 	}
 
-	items, err := queryLockerItems(p)
+	items, err := queryLockerItems(ctx, p)
 	if err != nil {
 		slog.Error("locker add re-query failed", "id", p.ID, "err", err)
 		return nil
@@ -459,7 +459,7 @@ func handleLockerAdd(p *player.Player, reader *player.EoReader) error {
 	})
 }
 
-func handleLockerTake(p *player.Player, reader *player.EoReader) error {
+func handleLockerTake(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.CharacterID == nil {
 		return nil
 	}
@@ -475,7 +475,7 @@ func handleLockerTake(p *player.Player, reader *player.EoReader) error {
 
 	// Query how much is in the bank for this item
 	var bankQty int
-	err := p.DB.QueryRow(context.Background(),
+	err := p.DB.QueryRow(ctx,
 		"SELECT quantity FROM character_bank WHERE character_id = ? AND item_id = ?",
 		*p.CharacterID, itemID).Scan(&bankQty)
 	if err != nil || bankQty <= 0 {
@@ -483,7 +483,7 @@ func handleLockerTake(p *player.Player, reader *player.EoReader) error {
 	}
 
 	// Remove from bank (take all of that item)
-	err = p.DB.Execute(context.Background(),
+	err = p.DB.Execute(ctx,
 		"DELETE FROM character_bank WHERE character_id = ? AND item_id = ?",
 		*p.CharacterID, itemID)
 	if err != nil {
@@ -494,7 +494,7 @@ func handleLockerTake(p *player.Player, reader *player.EoReader) error {
 	// Add to inventory
 	p.Inventory[itemID] += bankQty
 
-	items, err := queryLockerItems(p)
+	items, err := queryLockerItems(ctx, p)
 	if err != nil {
 		slog.Error("locker take re-query failed", "id", p.ID, "err", err)
 		return nil
@@ -508,13 +508,13 @@ func handleLockerTake(p *player.Player, reader *player.EoReader) error {
 }
 
 // No-op stubs
-func handleCitizenNoop(_ *player.Player, _ *player.EoReader) error       { return nil }
-func handlePriestNoop(_ *player.Player, _ *player.EoReader) error        { return nil }
-func handleMarriageNoop(_ *player.Player, _ *player.EoReader) error      { return nil }
-func handleAdminInteractNoop(_ *player.Player, _ *player.EoReader) error { return nil }
-func handleBookNoop(_ *player.Player, _ *player.EoReader) error          { return nil }
-func handleLockerBuy(_ *player.Player, _ *player.EoReader) error         { return nil }
-func handleChestOpen(p *player.Player, reader *player.EoReader) error {
+func handleCitizenNoop(_ context.Context, _ *player.Player, _ *player.EoReader) error       { return nil }
+func handlePriestNoop(_ context.Context, _ *player.Player, _ *player.EoReader) error        { return nil }
+func handleMarriageNoop(_ context.Context, _ *player.Player, _ *player.EoReader) error      { return nil }
+func handleAdminInteractNoop(_ context.Context, _ *player.Player, _ *player.EoReader) error { return nil }
+func handleBookNoop(_ context.Context, _ *player.Player, _ *player.EoReader) error          { return nil }
+func handleLockerBuy(_ context.Context, _ *player.Player, _ *player.EoReader) error         { return nil }
+func handleChestOpen(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil {
 		return nil
 	}
@@ -534,7 +534,7 @@ func handleChestOpen(p *player.Player, reader *player.EoReader) error {
 	})
 }
 
-func handleChestAdd(p *player.Player, reader *player.EoReader) error {
+func handleChestAdd(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil {
 		return nil
 	}
@@ -566,7 +566,7 @@ func handleChestAdd(p *player.Player, reader *player.EoReader) error {
 	})
 }
 
-func handleChestTake(p *player.Player, reader *player.EoReader) error {
+func handleChestTake(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil {
 		return nil
 	}
@@ -590,9 +590,9 @@ func handleChestTake(p *player.Player, reader *player.EoReader) error {
 		Items:     eoItems,
 	})
 }
-func handleMessageNoop(_ *player.Player, _ *player.EoReader) error { return nil }
-func handlePlayersNoop(_ *player.Player, _ *player.EoReader) error { return nil }
-func handleWarpNoop(_ *player.Player, _ *player.EoReader) error    { return nil }
+func handleMessageNoop(_ context.Context, _ *player.Player, _ *player.EoReader) error { return nil }
+func handlePlayersNoop(_ context.Context, _ *player.Player, _ *player.EoReader) error { return nil }
+func handleWarpNoop(_ context.Context, _ *player.Player, _ *player.EoReader) error    { return nil }
 
 // adminIcon converts an admin level to the CharacterIcon for the online list.
 func adminIcon(admin int) server.CharacterIcon {

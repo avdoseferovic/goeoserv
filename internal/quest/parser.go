@@ -61,11 +61,9 @@ func Parse(id int, input string) (*Quest, error) {
 			continue
 		}
 
-		lower := strings.ToLower(line)
-
-		if lower == "main" {
+		if strings.EqualFold(line, "main") {
 			i = parseMain(q, lines, i)
-		} else if strings.HasPrefix(lower, "state ") {
+		} else if len(line) > 6 && strings.EqualFold(line[:6], "state ") {
 			stateName := strings.TrimSpace(line[6:])
 			state := &State{Name: stateName}
 			i = parseState(state, lines, i)
@@ -88,10 +86,9 @@ func parseMain(q *Quest, lines []string, i int) int {
 			return i
 		}
 
-		lower := strings.ToLower(line)
-		if strings.HasPrefix(lower, "questname") {
+		if len(line) >= 9 && strings.EqualFold(line[:9], "questname") {
 			q.Name = extractQuotedString(line)
-		} else if strings.HasPrefix(lower, "version") {
+		} else if len(line) >= 7 && strings.EqualFold(line[:7], "version") {
 			parts := strings.Fields(line)
 			if len(parts) >= 2 {
 				q.Version, _ = strconv.Atoi(parts[1])
@@ -116,16 +113,14 @@ func parseState(state *State, lines []string, i int) int {
 			continue
 		}
 
-		lower := strings.ToLower(line)
-
-		if strings.HasPrefix(lower, "desc") {
+		if len(line) >= 4 && strings.EqualFold(line[:4], "desc") {
 			state.Description = extractQuotedString(line)
-		} else if strings.HasPrefix(lower, "action") {
+		} else if len(line) >= 6 && strings.EqualFold(line[:6], "action") {
 			action := parseAction(line)
 			if action != nil {
 				state.Actions = append(state.Actions, *action)
 			}
-		} else if strings.HasPrefix(lower, "rule") {
+		} else if len(line) >= 4 && strings.EqualFold(line[:4], "rule") {
 			rule := parseRule(line)
 			if rule != nil {
 				state.Rules = append(state.Rules, *rule)

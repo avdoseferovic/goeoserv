@@ -20,7 +20,7 @@ func init() {
 }
 
 // handleCharacterRequest handles the "NEW" character request (pre-creation check).
-func handleCharacterRequest(p *player.Player, reader *player.EoReader) error {
+func handleCharacterRequest(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	var pkt client.CharacterRequestClientPacket
 	if err := pkt.Deserialize(reader); err != nil {
 		slog.Error("failed to deserialize character request", "id", p.ID, "err", err)
@@ -35,7 +35,7 @@ func handleCharacterRequest(p *player.Player, reader *player.EoReader) error {
 		return nil
 	}
 
-	count, err := account.GetCharacterCount(p.DB, p.AccountID)
+	count, err := account.GetCharacterCount(ctx, p.DB, p.AccountID)
 	if err != nil {
 		slog.Error("error getting character count", "id", p.ID, "err", err)
 		p.Close()
@@ -58,7 +58,7 @@ func handleCharacterRequest(p *player.Player, reader *player.EoReader) error {
 }
 
 // handleCharacterCreate creates a new character.
-func handleCharacterCreate(p *player.Player, reader *player.EoReader) error {
+func handleCharacterCreate(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	var pkt client.CharacterCreateClientPacket
 	if err := pkt.Deserialize(reader); err != nil {
 		slog.Error("failed to deserialize character create", "id", p.ID, "err", err)
@@ -84,7 +84,7 @@ func handleCharacterCreate(p *player.Player, reader *player.EoReader) error {
 	}
 
 	// Check name taken
-	exists, err := account.CharacterExists(p.DB, pkt.Name)
+	exists, err := account.CharacterExists(ctx, p.DB, pkt.Name)
 	if err != nil {
 		slog.Error("error checking character exists", "id", p.ID, "err", err)
 		p.Close()
@@ -102,7 +102,7 @@ func handleCharacterCreate(p *player.Player, reader *player.EoReader) error {
 	adminLevel := 0
 	if p.Cfg.Server.AutoAdmin {
 		var totalChars int
-		_ = p.DB.QueryRow(context.Background(),
+		_ = p.DB.QueryRow(ctx,
 			`SELECT COUNT(1) FROM characters`).Scan(&totalChars)
 		if totalChars == 0 {
 			adminLevel = 5
@@ -110,7 +110,7 @@ func handleCharacterCreate(p *player.Player, reader *player.EoReader) error {
 	}
 
 	// Create character
-	_, err = p.DB.DB().ExecContext(context.Background(),
+	_, err = p.DB.DB().ExecContext(ctx,
 		`INSERT INTO characters (account_id, name, home, gender, race, hair_style, hair_color,
 		 map, x, y, direction, admin_level)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -126,7 +126,7 @@ func handleCharacterCreate(p *player.Player, reader *player.EoReader) error {
 
 	slog.Info("new character created", "name", pkt.Name, "account_id", p.AccountID)
 
-	characters, err := account.GetCharacterList(p.DB, p.AccountID)
+	characters, err := account.GetCharacterList(ctx, p.DB, p.AccountID)
 	if err != nil {
 		slog.Error("error getting character list", "id", p.ID, "err", err)
 		p.Close()
@@ -142,7 +142,7 @@ func handleCharacterCreate(p *player.Player, reader *player.EoReader) error {
 }
 
 // handleCharacterTake initiates character deletion (sends session ID).
-func handleCharacterTake(p *player.Player, reader *player.EoReader) error {
+func handleCharacterTake(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	var pkt client.CharacterTakeClientPacket
 	if err := pkt.Deserialize(reader); err != nil {
 		slog.Error("failed to deserialize character take", "id", p.ID, "err", err)
@@ -155,7 +155,7 @@ func handleCharacterTake(p *player.Player, reader *player.EoReader) error {
 
 	// Verify character belongs to this account
 	var ownerAccountID int
-	err := p.DB.QueryRow(context.Background(),
+	err := p.DB.QueryRow(ctx,
 		`SELECT account_id FROM characters WHERE id = ?`, pkt.CharacterId).Scan(&ownerAccountID)
 	if err != nil {
 		slog.Error("error loading character for deletion", "id", p.ID, "err", err)
@@ -178,7 +178,7 @@ func handleCharacterTake(p *player.Player, reader *player.EoReader) error {
 }
 
 // handleCharacterRemove completes character deletion.
-func handleCharacterRemove(p *player.Player, reader *player.EoReader) error {
+func handleCharacterRemove(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	var pkt client.CharacterRemoveClientPacket
 	if err := pkt.Deserialize(reader); err != nil {
 		slog.Error("failed to deserialize character remove", "id", p.ID, "err", err)
@@ -198,7 +198,7 @@ func handleCharacterRemove(p *player.Player, reader *player.EoReader) error {
 
 	// Verify ownership
 	var ownerAccountID int
-	err := p.DB.QueryRow(context.Background(),
+	err := p.DB.QueryRow(ctx,
 		`SELECT account_id FROM characters WHERE id = ?`, pkt.CharacterId).Scan(&ownerAccountID)
 	if err != nil {
 		slog.Error("error loading character for deletion", "id", p.ID, "err", err)
@@ -213,7 +213,6 @@ func handleCharacterRemove(p *player.Player, reader *player.EoReader) error {
 	}
 
 	// Delete character and related data
-	ctx := context.Background()
 	tx, err := p.DB.BeginTx(ctx)
 	if err != nil {
 		slog.Error("error starting transaction", "id", p.ID, "err", err)
@@ -237,7 +236,7 @@ func handleCharacterRemove(p *player.Player, reader *player.EoReader) error {
 
 	slog.Info("character deleted", "character_id", pkt.CharacterId, "account_id", p.AccountID)
 
-	characters, err := account.GetCharacterList(p.DB, p.AccountID)
+	characters, err := account.GetCharacterList(ctx, p.DB, p.AccountID)
 	if err != nil {
 		slog.Error("error getting character list", "id", p.ID, "err", err)
 		p.Close()

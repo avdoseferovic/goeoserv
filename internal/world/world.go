@@ -14,28 +14,85 @@ import (
 	"github.com/avdo/goeoserv/internal/config"
 	"github.com/avdo/goeoserv/internal/db"
 	"github.com/avdo/goeoserv/internal/gamemap"
+	"github.com/avdo/goeoserv/internal/protocol"
 	pubdata "github.com/avdo/goeoserv/internal/pub"
 	"github.com/ethanmoffat/eolib-go/v3/data"
 	eomap "github.com/ethanmoffat/eolib-go/v3/protocol/map"
 	eonet "github.com/ethanmoffat/eolib-go/v3/protocol/net"
 )
 
+// playerEntry tracks which map a player is on and their bus for O(1) lookups.
+type playerEntry struct {
+	mapID int
+	name  string
+	bus   *protocol.PacketBus
+}
+
 // World manages all game maps, online players, and the game tick loop.
 type World struct {
-	mu             sync.RWMutex
-	maps           map[int]*gamemap.GameMap
+	mapMu sync.RWMutex
+	maps  map[int]*gamemap.GameMap
+
+	accountMu      sync.RWMutex
 	loggedAccounts map[int]bool // accountID -> logged in
-	cfg            *config.Config
-	db             *db.Database
+
+	// Global player index for O(1) lookups by ID or name.
+	playerMu    sync.RWMutex
+	playerIndex map[int]*playerEntry // playerID -> entry
+	nameIndex   map[string]int       // lowercase name -> playerID
+
+	cfg *config.Config
+	db  *db.Database
 }
 
 func New(cfg *config.Config, database *db.Database) *World {
 	return &World{
 		maps:           make(map[int]*gamemap.GameMap),
 		loggedAccounts: make(map[int]bool),
+		playerIndex:    make(map[int]*playerEntry),
+		nameIndex:      make(map[string]int),
 		cfg:            cfg,
 		db:             database,
 	}
+}
+
+// RegisterPlayer adds a player to the global index. Call when entering a map.
+func (w *World) RegisterPlayer(playerID, mapID int, name string, bus *protocol.PacketBus) {
+	w.playerMu.Lock()
+	defer w.playerMu.Unlock()
+	w.playerIndex[playerID] = &playerEntry{mapID: mapID, name: name, bus: bus}
+	if name != "" {
+		w.nameIndex[strings.ToLower(name)] = playerID
+	}
+}
+
+// UnregisterPlayer removes a player from the global index.
+func (w *World) UnregisterPlayer(playerID int) {
+	w.playerMu.Lock()
+	defer w.playerMu.Unlock()
+	if e, ok := w.playerIndex[playerID]; ok {
+		if e.name != "" {
+			delete(w.nameIndex, strings.ToLower(e.name))
+		}
+		delete(w.playerIndex, playerID)
+	}
+}
+
+// UpdatePlayerMap updates the map ID in the player index (e.g., after warp).
+func (w *World) UpdatePlayerMap(playerID, mapID int) {
+	w.playerMu.Lock()
+	defer w.playerMu.Unlock()
+	if e, ok := w.playerIndex[playerID]; ok {
+		e.mapID = mapID
+	}
+}
+
+// getMap returns a map by ID using mapMu.
+func (w *World) getMap(mapID int) *gamemap.GameMap {
+	w.mapMu.RLock()
+	m := w.maps[mapID]
+	w.mapMu.RUnlock()
+	return m
 }
 
 // LoadMaps loads all EMF files from the data/maps directory.
@@ -86,8 +143,8 @@ func (w *World) LoadMaps() error {
 
 // InitNpcStats sets NPC HP/stats from ENF data for all loaded maps.
 func (w *World) InitNpcStats() {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
+	w.mapMu.RLock()
+	defer w.mapMu.RUnlock()
 	for _, m := range w.maps {
 		m.InitNpcStats(func(npcID int) int {
 			rec := pubdata.GetNpc(npcID)
@@ -101,62 +158,57 @@ func (w *World) InitNpcStats() {
 
 // GetMap returns the map with the given ID, or nil if not found.
 func (w *World) GetMap(mapID int) *gamemap.GameMap {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-	return w.maps[mapID]
+	return w.getMap(mapID)
 }
 
 // IsLoggedIn checks if an account is currently logged in.
 func (w *World) IsLoggedIn(accountID int) bool {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
+	w.accountMu.RLock()
+	defer w.accountMu.RUnlock()
 	return w.loggedAccounts[accountID]
 }
 
 // AddLoggedInAccount marks an account as logged in.
 func (w *World) AddLoggedInAccount(accountID int) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	w.accountMu.Lock()
+	defer w.accountMu.Unlock()
 	w.loggedAccounts[accountID] = true
 }
 
 // RemoveLoggedInAccount marks an account as logged out.
 func (w *World) RemoveLoggedInAccount(accountID int) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	w.accountMu.Lock()
+	defer w.accountMu.Unlock()
 	delete(w.loggedAccounts, accountID)
 }
 
 // EnterMap adds a player's character to a map and broadcasts their appearance.
 func (w *World) EnterMap(mapID int, charInfo any) {
-	w.mu.RLock()
-	m := w.maps[mapID]
-	w.mu.RUnlock()
+	m := w.getMap(mapID)
 	if m == nil {
 		slog.Warn("map not found for enter", "map_id", mapID)
 		return
 	}
 	if mc, ok := charInfo.(*gamemap.MapCharacter); ok {
 		m.Enter(mc)
+		// Register in global player index
+		w.RegisterPlayer(mc.PlayerID, mapID, mc.Name, mc.Bus)
 	}
 }
 
 // LeaveMap removes a player's character from a map.
 func (w *World) LeaveMap(mapID, playerID int) {
-	w.mu.RLock()
-	m := w.maps[mapID]
-	w.mu.RUnlock()
+	m := w.getMap(mapID)
 	if m == nil {
 		return
 	}
 	m.Leave(playerID)
+	w.UnregisterPlayer(playerID)
 }
 
 // Walk handles a player walking on a map.
 func (w *World) Walk(mapID, playerID int, direction int, coords [2]int) {
-	w.mu.RLock()
-	m := w.maps[mapID]
-	w.mu.RUnlock()
+	m := w.getMap(mapID)
 	if m == nil {
 		return
 	}
@@ -165,9 +217,7 @@ func (w *World) Walk(mapID, playerID int, direction int, coords [2]int) {
 
 // Face handles a player changing direction on a map.
 func (w *World) Face(mapID, playerID int, direction int) {
-	w.mu.RLock()
-	m := w.maps[mapID]
-	w.mu.RUnlock()
+	m := w.getMap(mapID)
 	if m == nil {
 		return
 	}
@@ -176,9 +226,7 @@ func (w *World) Face(mapID, playerID int, direction int) {
 
 // Broadcast sends a packet to all players on a map except the sender.
 func (w *World) Broadcast(mapID, excludePlayerID int, pkt eonet.Packet) {
-	w.mu.RLock()
-	m := w.maps[mapID]
-	w.mu.RUnlock()
+	m := w.getMap(mapID)
 	if m == nil {
 		return
 	}
@@ -202,8 +250,8 @@ func (w *World) RunTickLoop(ctx context.Context) {
 }
 
 func (w *World) tick() {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
+	w.mapMu.RLock()
+	defer w.mapMu.RUnlock()
 	for _, m := range w.maps {
 		m.Tick()
 	}
@@ -211,9 +259,7 @@ func (w *World) tick() {
 
 // BroadcastMap sends a packet to all players on a map except excludeID.
 func (w *World) BroadcastMap(mapID, excludePlayerID int, pkt any) {
-	w.mu.RLock()
-	m := w.maps[mapID]
-	w.mu.RUnlock()
+	m := w.getMap(mapID)
 	if m == nil {
 		return
 	}
@@ -228,47 +274,38 @@ func (w *World) BroadcastGlobal(excludePlayerID int, pkt any) {
 	if !ok {
 		return
 	}
-	w.mu.RLock()
-	defer w.mu.RUnlock()
+	w.mapMu.RLock()
+	defer w.mapMu.RUnlock()
 	for _, m := range w.maps {
 		m.Broadcast(excludePlayerID, p)
 	}
 }
 
-// SendToPlayer sends a packet to a specific player by searching all maps.
+// SendToPlayer sends a packet to a specific player using O(1) index lookup.
 func (w *World) SendToPlayer(playerID int, pkt any) {
 	p, ok := pkt.(eonet.Packet)
 	if !ok {
 		return
 	}
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-	for _, m := range w.maps {
-		if bus := m.GetPlayerBus(playerID); bus != nil {
-			_ = bus.SendPacket(p)
-			return
-		}
+	w.playerMu.RLock()
+	e := w.playerIndex[playerID]
+	w.playerMu.RUnlock()
+	if e != nil {
+		_ = e.bus.SendPacket(p)
 	}
 }
 
-// FindPlayerByName searches all maps for a player with the given name.
-// Returns the playerID and true if found.
+// FindPlayerByName finds a player using O(1) name index lookup.
 func (w *World) FindPlayerByName(name string) (int, bool) {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-	for _, m := range w.maps {
-		if id, ok := m.FindPlayerByName(name); ok {
-			return id, true
-		}
-	}
-	return 0, false
+	w.playerMu.RLock()
+	id, ok := w.nameIndex[strings.ToLower(name)]
+	w.playerMu.RUnlock()
+	return id, ok
 }
 
 // DamageNpc applies damage to an NPC on a map.
 func (w *World) DamageNpc(mapID, npcIndex, playerID, damage int) (int, bool, int) {
-	w.mu.RLock()
-	m := w.maps[mapID]
-	w.mu.RUnlock()
+	m := w.getMap(mapID)
 	if m == nil {
 		return 0, false, 0
 	}
@@ -277,9 +314,7 @@ func (w *World) DamageNpc(mapID, npcIndex, playerID, damage int) (int, bool, int
 
 // GetNpcAt returns the NPC index at the given coordinates on a map.
 func (w *World) GetNpcAt(mapID, x, y int) int {
-	w.mu.RLock()
-	m := w.maps[mapID]
-	w.mu.RUnlock()
+	m := w.getMap(mapID)
 	if m == nil {
 		return -1
 	}
@@ -288,9 +323,7 @@ func (w *World) GetNpcAt(mapID, x, y int) int {
 
 // DropItem drops an item on a map. Returns the ground item UID.
 func (w *World) DropItem(mapID, itemID, amount, x, y, droppedBy int) int {
-	w.mu.RLock()
-	m := w.maps[mapID]
-	w.mu.RUnlock()
+	m := w.getMap(mapID)
 	if m == nil {
 		return 0
 	}
@@ -299,9 +332,7 @@ func (w *World) DropItem(mapID, itemID, amount, x, y, droppedBy int) int {
 
 // PickupItem picks up a ground item. Returns (itemID, amount, ok).
 func (w *World) PickupItem(mapID, uid int) (int, int, bool) {
-	w.mu.RLock()
-	m := w.maps[mapID]
-	w.mu.RUnlock()
+	m := w.getMap(mapID)
 	if m == nil {
 		return 0, 0, false
 	}
@@ -314,9 +345,7 @@ func (w *World) PickupItem(mapID, uid int) (int, int, bool) {
 
 // GetNearbyInfo returns the NearbyInfo for a given map.
 func (w *World) GetNearbyInfo(mapID int) any {
-	w.mu.RLock()
-	m := w.maps[mapID]
-	w.mu.RUnlock()
+	m := w.getMap(mapID)
 	if m == nil {
 		return nil
 	}
@@ -324,58 +353,53 @@ func (w *World) GetNearbyInfo(mapID int) any {
 	return &info
 }
 
-// SendTo sends a packet to a specific player by looking across all maps.
+// SendTo sends a packet to a specific player using O(1) index lookup.
 func (w *World) SendTo(playerID int, pkt eonet.Packet) {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-	for _, m := range w.maps {
-		if bus := m.GetPlayerBus(playerID); bus != nil {
-			_ = bus.SendPacket(pkt)
-			return
-		}
+	w.playerMu.RLock()
+	e := w.playerIndex[playerID]
+	w.playerMu.RUnlock()
+	if e != nil {
+		_ = e.bus.SendPacket(pkt)
 	}
 }
 
-// GetPlayerBus retrieves a player's PacketBus from whatever map they're on.
-// Returns any to satisfy the WorldInterface; callers should type-assert to *protocol.PacketBus.
+// GetPlayerBus retrieves a player's PacketBus using O(1) index lookup.
 func (w *World) GetPlayerBus(playerID int) any {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-	for _, m := range w.maps {
-		if bus := m.GetPlayerBus(playerID); bus != nil {
-			return bus
-		}
+	w.playerMu.RLock()
+	e := w.playerIndex[playerID]
+	w.playerMu.RUnlock()
+	if e != nil {
+		return e.bus
 	}
 	return nil
 }
 
 // GetPlayerPosition finds a player across all maps and returns their position.
 func (w *World) GetPlayerPosition(playerID int) any {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-	for _, m := range w.maps {
-		if pos := m.GetPlayerPosition(playerID); pos != nil {
-			return pos
-		}
+	w.playerMu.RLock()
+	e := w.playerIndex[playerID]
+	w.playerMu.RUnlock()
+	if e == nil {
+		return nil
 	}
-	return nil
+	m := w.getMap(e.mapID)
+	if m == nil {
+		return nil
+	}
+	return m.GetPlayerPosition(playerID)
 }
 
 // OnlinePlayerCount returns the total number of players across all maps.
 func (w *World) OnlinePlayerCount() int {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-	count := 0
-	for _, m := range w.maps {
-		count += m.PlayerCount()
-	}
-	return count
+	w.playerMu.RLock()
+	defer w.playerMu.RUnlock()
+	return len(w.playerIndex)
 }
 
 // GetOnlinePlayers returns info for all online players across all maps.
 func (w *World) GetOnlinePlayers() any {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
+	w.mapMu.RLock()
+	defer w.mapMu.RUnlock()
 	var result []gamemap.OnlinePlayerInfo
 	for _, m := range w.maps {
 		result = append(result, m.GetOnlinePlayers()...)
@@ -389,8 +413,8 @@ func (w *World) BroadcastToAdmins(excludePlayerID int, minAdmin int, pkt any) {
 	if !ok {
 		return
 	}
-	w.mu.RLock()
-	defer w.mu.RUnlock()
+	w.mapMu.RLock()
+	defer w.mapMu.RUnlock()
 	for _, m := range w.maps {
 		m.BroadcastToAdmins(excludePlayerID, minAdmin, p)
 	}
@@ -398,10 +422,10 @@ func (w *World) BroadcastToAdmins(excludePlayerID int, minAdmin int, pkt any) {
 
 // WarpPlayer moves a player from one map to another. Returns NearbyInfo for the new map.
 func (w *World) WarpPlayer(playerID, fromMapID, toMapID, toX, toY int) any {
-	w.mu.RLock()
+	w.mapMu.RLock()
 	fromMap := w.maps[fromMapID]
 	toMap := w.maps[toMapID]
-	w.mu.RUnlock()
+	w.mapMu.RUnlock()
 
 	if fromMap == nil || toMap == nil {
 		return nil
@@ -417,6 +441,9 @@ func (w *World) WarpPlayer(playerID, fromMapID, toMapID, toX, toY int) any {
 	ch.MapID = toMapID
 	toMap.Enter(ch)
 
+	// Update player index with new map
+	w.UpdatePlayerMap(playerID, toMapID)
+
 	info := toMap.GetNearbyInfo()
 	return &info
 }
@@ -427,8 +454,8 @@ func (w *World) BroadcastToGuild(excludePlayerID int, guildTag string, pkt any) 
 	if !ok || guildTag == "" {
 		return
 	}
-	w.mu.RLock()
-	defer w.mu.RUnlock()
+	w.mapMu.RLock()
+	defer w.mapMu.RUnlock()
 	for _, m := range w.maps {
 		m.BroadcastToGuild(excludePlayerID, guildTag, p)
 	}
@@ -448,9 +475,7 @@ func (w *World) BroadcastToParty(playerID int, pkt any) {
 
 // GetChestItems returns items in a chest at given coords on a map.
 func (w *World) GetChestItems(mapID, x, y int) any {
-	w.mu.RLock()
-	m := w.maps[mapID]
-	w.mu.RUnlock()
+	m := w.getMap(mapID)
 	if m == nil {
 		return nil
 	}
@@ -459,9 +484,7 @@ func (w *World) GetChestItems(mapID, x, y int) any {
 
 // AddChestItem adds an item to a chest. Returns updated item list.
 func (w *World) AddChestItem(mapID, x, y, itemID, amount int) any {
-	w.mu.RLock()
-	m := w.maps[mapID]
-	w.mu.RUnlock()
+	m := w.getMap(mapID)
 	if m == nil {
 		return nil
 	}
@@ -470,9 +493,7 @@ func (w *World) AddChestItem(mapID, x, y, itemID, amount int) any {
 
 // TakeChestItem takes an item from a chest.
 func (w *World) TakeChestItem(mapID, x, y, itemID int) (int, any) {
-	w.mu.RLock()
-	m := w.maps[mapID]
-	w.mu.RUnlock()
+	m := w.getMap(mapID)
 	if m == nil {
 		return 0, nil
 	}
@@ -482,9 +503,7 @@ func (w *World) TakeChestItem(mapID, x, y, itemID int) (int, any) {
 
 // GetNpcEnfID returns the ENF record ID for an NPC at a given index on a map.
 func (w *World) GetNpcEnfID(mapID, npcIndex int) int {
-	w.mu.RLock()
-	m := w.maps[mapID]
-	w.mu.RUnlock()
+	m := w.getMap(mapID)
 	if m == nil {
 		return 0
 	}
@@ -495,23 +514,20 @@ func (w *World) GetNpcEnfID(mapID, npcIndex int) int {
 	return npc.ID
 }
 
-// GetPlayerName returns a player's character name by searching all maps.
+// GetPlayerName returns a player's character name using O(1) index lookup.
 func (w *World) GetPlayerName(playerID int) string {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-	for _, m := range w.maps {
-		if name := m.GetPlayerName(playerID); name != "" {
-			return name
-		}
+	w.playerMu.RLock()
+	e := w.playerIndex[playerID]
+	w.playerMu.RUnlock()
+	if e != nil {
+		return e.name
 	}
 	return ""
 }
 
 // GetPendingWarp returns the pending warp destination for a player.
 func (w *World) GetPendingWarp(mapID, playerID int) (int, int, int, bool) {
-	w.mu.RLock()
-	m := w.maps[mapID]
-	w.mu.RUnlock()
+	m := w.getMap(mapID)
 	if m == nil {
 		return 0, 0, 0, false
 	}
@@ -524,9 +540,7 @@ func (w *World) GetPendingWarp(mapID, playerID int) (int, int, int, bool) {
 
 // SetPendingWarp sets a pending warp on a player's map character.
 func (w *World) SetPendingWarp(mapID, playerID, toMapID, toX, toY int) {
-	w.mu.RLock()
-	m := w.maps[mapID]
-	w.mu.RUnlock()
+	m := w.getMap(mapID)
 	if m == nil {
 		return
 	}
@@ -535,9 +549,7 @@ func (w *World) SetPendingWarp(mapID, playerID, toMapID, toX, toY int) {
 
 // UpdateMapEquipment updates the visible equipment on a player's map character.
 func (w *World) UpdateMapEquipment(mapID, playerID, boots, armor, hat, shield, weapon int) {
-	w.mu.RLock()
-	m := w.maps[mapID]
-	w.mu.RUnlock()
+	m := w.getMap(mapID)
 	if m == nil {
 		return
 	}

@@ -23,7 +23,7 @@ func init() {
 }
 
 // handleWelcomeRequest handles character selection (choosing which character to play).
-func handleWelcomeRequest(p *player.Player, reader *player.EoReader) error {
+func handleWelcomeRequest(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	var pkt client.WelcomeRequestClientPacket
 	if err := pkt.Deserialize(reader); err != nil {
 		slog.Error("failed to deserialize welcome request", "id", p.ID, "err", err)
@@ -50,7 +50,7 @@ func handleWelcomeRequest(p *player.Player, reader *player.EoReader) error {
 	)
 	_ = home
 
-	err := p.DB.QueryRow(context.Background(),
+	err := p.DB.QueryRow(ctx,
 		`SELECT c.id, c.account_id, c.name, COALESCE(c.home, ''), c.level, c.map, c.x, c.y, c.direction,
 		        c.hp, c.hp, c.tp, c.tp, c.experience,
 		        c.strength, c.intelligence, c.wisdom, c.agility, c.constitution, c.charisma,
@@ -131,12 +131,12 @@ func handleWelcomeRequest(p *player.Player, reader *player.EoReader) error {
 	p.State = player.StateEnteringGame
 
 	// Load inventory from DB
-	if err := loadInventory(p); err != nil {
+	if err := loadInventory(ctx, p); err != nil {
 		slog.Warn("failed to load inventory", "id", p.ID, "err", err)
 	}
 
 	// Load spells from DB
-	if err := loadSpells(p); err != nil {
+	if err := loadSpells(ctx, p); err != nil {
 		slog.Warn("failed to load spells", "id", p.ID, "err", err)
 	}
 
@@ -215,7 +215,7 @@ func handleWelcomeRequest(p *player.Player, reader *player.EoReader) error {
 }
 
 // handleWelcomeAgree handles file requests from the client during character select.
-func handleWelcomeAgree(p *player.Player, reader *player.EoReader) error {
+func handleWelcomeAgree(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	var pkt client.WelcomeAgreeClientPacket
 	if err := pkt.Deserialize(reader); err != nil {
 		slog.Error("failed to deserialize welcome agree", "id", p.ID, "err", err)
@@ -285,7 +285,7 @@ func sendPubFile(p *player.Player, path string, fileID int, replyCode server.Ini
 }
 
 // handleWelcomeMsg handles the enter-game confirmation.
-func handleWelcomeMsg(p *player.Player, reader *player.EoReader) error {
+func handleWelcomeMsg(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	var pkt client.WelcomeMsgClientPacket
 	if err := pkt.Deserialize(reader); err != nil {
 		slog.Error("failed to deserialize welcome msg", "id", p.ID, "err", err)
@@ -367,11 +367,11 @@ func handleWelcomeMsg(p *player.Player, reader *player.EoReader) error {
 	})
 }
 
-func loadInventory(p *player.Player) error {
+func loadInventory(ctx context.Context, p *player.Player) error {
 	if p.CharacterID == nil {
 		return nil
 	}
-	rows, err := p.DB.Query(context.Background(),
+	rows, err := p.DB.Query(ctx,
 		"SELECT item_id, quantity FROM character_inventory WHERE character_id = ?", *p.CharacterID)
 	if err != nil {
 		return err
@@ -391,11 +391,11 @@ func loadInventory(p *player.Player) error {
 	return rows.Err()
 }
 
-func loadSpells(p *player.Player) error {
+func loadSpells(ctx context.Context, p *player.Player) error {
 	if p.CharacterID == nil {
 		return nil
 	}
-	rows, err := p.DB.Query(context.Background(),
+	rows, err := p.DB.Query(ctx,
 		"SELECT spell_id, level FROM character_spells WHERE character_id = ?", *p.CharacterID)
 	if err != nil {
 		return err

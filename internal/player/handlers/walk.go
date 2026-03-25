@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/avdo/goeoserv/internal/player"
@@ -12,7 +13,7 @@ func init() {
 	player.Register(eonet.PacketFamily_Walk, eonet.PacketAction_Player, handleWalkPlayer)
 }
 
-func handleWalkPlayer(p *player.Player, reader *player.EoReader) error {
+func handleWalkPlayer(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil {
 		slog.Debug("walk rejected: not in game", "id", p.ID, "state", p.State, "hasWorld", p.World != nil)
 		return nil

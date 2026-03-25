@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/avdo/goeoserv/internal/player"
@@ -12,7 +13,7 @@ func init() {
 	player.Register(eonet.PacketFamily_Face, eonet.PacketAction_Player, handleFacePlayer)
 }
 
-func handleFacePlayer(p *player.Player, reader *player.EoReader) error {
+func handleFacePlayer(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil {
 		return nil
 	}

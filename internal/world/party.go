@@ -65,18 +65,20 @@ func GetParty(playerID int) *Party {
 }
 
 // AddMember adds a player to a party.
+// Lock order: partyMu -> p.mu (consistent with RemoveMember and disband).
 func (p *Party) AddMember(member PartyMemberInfo, maxSize int) bool {
+	partyMu.Lock()
 	p.mu.Lock()
-	defer p.mu.Unlock()
 
 	if len(p.Members) >= maxSize {
+		p.mu.Unlock()
+		partyMu.Unlock()
 		return false
 	}
 
 	p.Members = append(p.Members, member)
-
-	partyMu.Lock()
 	playerParty[member.PlayerID] = p.ID
+	p.mu.Unlock()
 	partyMu.Unlock()
 
 	// Notify all members
@@ -104,13 +106,12 @@ func (p *Party) AddMember(member PartyMemberInfo, maxSize int) bool {
 }
 
 // RemoveMember removes a player from the party.
+// Lock order: partyMu -> p.mu (consistent with AddMember and disband).
 func (p *Party) RemoveMember(playerID int) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	partyMu.Lock()
+	p.mu.Lock()
+
 	delete(playerParty, playerID)
-	partyMu.Unlock()
 
 	for i, m := range p.Members {
 		if m.PlayerID == playerID {
@@ -121,7 +122,10 @@ func (p *Party) RemoveMember(playerID int) {
 
 	// If party is empty or only 1 member left, disband
 	if len(p.Members) <= 1 {
-		p.disband()
+		// disbandLocked expects both locks held
+		p.disbandLocked()
+		p.mu.Unlock()
+		partyMu.Unlock()
 		return
 	}
 
@@ -130,17 +134,31 @@ func (p *Party) RemoveMember(playerID int) {
 		p.LeaderID = p.Members[0].PlayerID
 	}
 
-	// Notify remaining members
+	// Collect buses before releasing locks
+	buses := make([]*protocol.PacketBus, len(p.Members))
+	for i, m := range p.Members {
+		buses[i] = m.Bus
+	}
+	p.mu.Unlock()
+	partyMu.Unlock()
+
+	// Send outside locks
 	pkt := &server.PartyRemoveServerPacket{PlayerId: playerID}
-	for _, m := range p.Members {
-		_ = m.Bus.SendPacket(pkt)
+	for _, bus := range buses {
+		_ = bus.SendPacket(pkt)
 	}
 }
 
 func (p *Party) disband() {
 	partyMu.Lock()
-	defer partyMu.Unlock()
+	p.mu.Lock()
+	p.disbandLocked()
+	p.mu.Unlock()
+	partyMu.Unlock()
+}
 
+// disbandLocked expects both partyMu and p.mu to be held.
+func (p *Party) disbandLocked() {
 	closePkt := &server.PartyCloseServerPacket{}
 	for _, m := range p.Members {
 		delete(playerParty, m.PlayerID)

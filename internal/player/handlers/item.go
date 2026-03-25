@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/avdo/goeoserv/internal/formula"
@@ -21,7 +22,7 @@ func init() {
 }
 
 // handleItemGet picks up a ground item.
-func handleItemGet(p *player.Player, reader *player.EoReader) error {
+func handleItemGet(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil {
 		return nil
 	}
@@ -47,7 +48,7 @@ func handleItemGet(p *player.Player, reader *player.EoReader) error {
 }
 
 // handleItemDrop drops an item from inventory onto the map.
-func handleItemDrop(p *player.Player, reader *player.EoReader) error {
+func handleItemDrop(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil {
 		return nil
 	}
@@ -92,7 +93,7 @@ func handleItemDrop(p *player.Player, reader *player.EoReader) error {
 }
 
 // handleItemJunk destroys items from inventory.
-func handleItemJunk(p *player.Player, reader *player.EoReader) error {
+func handleItemJunk(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}
@@ -124,7 +125,7 @@ func handleItemJunk(p *player.Player, reader *player.EoReader) error {
 }
 
 // handleItemUse uses a consumable item from inventory.
-func handleItemUse(p *player.Player, reader *player.EoReader) error {
+func handleItemUse(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}

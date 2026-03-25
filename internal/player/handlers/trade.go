@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/avdo/goeoserv/internal/player"
@@ -19,7 +20,7 @@ func init() {
 }
 
 // handleTradeRequest — player requests to trade with another player.
-func handleTradeRequest(p *player.Player, reader *player.EoReader) error {
+func handleTradeRequest(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil {
 		return nil
 	}
@@ -53,7 +54,7 @@ func handleTradeRequest(p *player.Player, reader *player.EoReader) error {
 }
 
 // handleTradeAccept — player accepts a trade request.
-func handleTradeAccept(p *player.Player, reader *player.EoReader) error {
+func handleTradeAccept(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil {
 		return nil
 	}
@@ -93,7 +94,7 @@ func handleTradeAccept(p *player.Player, reader *player.EoReader) error {
 }
 
 // handleTradeAdd — player adds an item to the trade.
-func handleTradeAdd(p *player.Player, reader *player.EoReader) error {
+func handleTradeAdd(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil || p.TradePartnerID == 0 {
 		return nil
 	}
@@ -124,7 +125,7 @@ func handleTradeAdd(p *player.Player, reader *player.EoReader) error {
 }
 
 // handleTradeRemove — player removes an item from the trade.
-func handleTradeRemove(p *player.Player, reader *player.EoReader) error {
+func handleTradeRemove(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil || p.TradePartnerID == 0 {
 		return nil
 	}
@@ -144,7 +145,7 @@ func handleTradeRemove(p *player.Player, reader *player.EoReader) error {
 }
 
 // handleTradeAgree — player agrees to the trade (or unagrees).
-func handleTradeAgree(p *player.Player, reader *player.EoReader) error {
+func handleTradeAgree(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil || p.TradePartnerID == 0 {
 		return nil
 	}
@@ -167,7 +168,7 @@ func handleTradeAgree(p *player.Player, reader *player.EoReader) error {
 }
 
 // handleTradeClose — player closes the trade window.
-func handleTradeClose(p *player.Player, _ *player.EoReader) error {
+func handleTradeClose(ctx context.Context, p *player.Player, _ *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil || p.TradePartnerID == 0 {
 		return nil
 	}

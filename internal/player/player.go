@@ -146,6 +146,9 @@ func New(id int, conn *protocol.Conn, ip string, cfg *config.Config, database *d
 
 // Run is the main player loop, reading and dispatching packets.
 func (p *Player) Run(ctx context.Context) {
+	// Create a connection-scoped context that cancels when the player disconnects.
+	connCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	defer func() {
 		if err := p.conn.Close(); err != nil {
 			slog.Debug("failed to close connection", "id", p.ID, "err", err)
@@ -153,7 +156,7 @@ func (p *Player) Run(ctx context.Context) {
 	}()
 	for {
 		select {
-		case <-ctx.Done():
+		case <-connCtx.Done():
 			return
 		default:
 		}
@@ -191,7 +194,7 @@ func (p *Player) Run(ctx context.Context) {
 
 		slog.Debug("packet received", "id", p.ID, "family", int(family), "action", int(action), "state", p.State)
 
-		if err := p.handlePacket(action, family, reader); err != nil {
+		if err := p.handlePacket(connCtx, action, family, reader); err != nil {
 			slog.Error("error handling packet",
 				"id", p.ID,
 				"family", family,
@@ -234,12 +237,13 @@ func (p *Player) Die() {
 
 // SaveCharacter persists the current character state to the database.
 // It saves position, stats, and inventory in a single transaction.
+// Uses context.Background() since this may be called during disconnect/save loops.
 func (p *Player) SaveCharacter() error {
 	if p.CharacterID == nil {
 		return nil
 	}
 	charID := *p.CharacterID
-	ctx := context.Background()
+	ctx := context.Background() // intentional: saves run outside request scope
 
 	tx, err := p.DB.BeginTx(ctx)
 	if err != nil {
@@ -311,13 +315,13 @@ func (p *Player) SaveCharacter() error {
 	return tx.Commit()
 }
 
-func (p *Player) handlePacket(action eonet.PacketAction, family eonet.PacketFamily, reader *protocol.EoReader) error {
+func (p *Player) handlePacket(ctx context.Context, action eonet.PacketAction, family eonet.PacketFamily, reader *protocol.EoReader) error {
 	handler := GetHandler(family, action)
 	if handler == nil {
 		slog.Warn("unhandled packet", "family", family, "action", action)
 		return nil
 	}
-	return handler(p, reader)
+	return handler(ctx, p, reader)
 }
 
 // GenerateSessionID creates and stores a random session ID.

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/avdo/goeoserv/internal/player"
@@ -18,7 +19,7 @@ func init() {
 }
 
 // handleSpellRequest begins spell casting (starts the cast bar).
-func handleSpellRequest(p *player.Player, reader *player.EoReader) error {
+func handleSpellRequest(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}
@@ -62,7 +63,7 @@ func handleSpellRequest(p *player.Player, reader *player.EoReader) error {
 }
 
 // handleSpellTargetSelf handles self-targeted spells (heals).
-func handleSpellTargetSelf(p *player.Player, reader *player.EoReader) error {
+func handleSpellTargetSelf(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil {
 		return nil
 	}
@@ -114,7 +115,7 @@ func handleSpellTargetSelf(p *player.Player, reader *player.EoReader) error {
 }
 
 // handleSpellTargetOther handles targeted spells (damage or heal on another player/NPC).
-func handleSpellTargetOther(p *player.Player, reader *player.EoReader) error {
+func handleSpellTargetOther(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil {
 		return nil
 	}
@@ -156,7 +157,7 @@ func handleSpellTargetOther(p *player.Player, reader *player.EoReader) error {
 }
 
 // handleSpellTargetGroup handles group heal spells.
-func handleSpellTargetGroup(p *player.Player, reader *player.EoReader) error {
+func handleSpellTargetGroup(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil {
 		return nil
 	}

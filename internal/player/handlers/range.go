@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"github.com/avdo/goeoserv/internal/player"
 	eonet "github.com/ethanmoffat/eolib-go/v3/protocol/net"
 	"github.com/ethanmoffat/eolib-go/v3/protocol/net/server"
@@ -15,7 +16,7 @@ func init() {
 	player.Register(eonet.PacketFamily_Range, eonet.PacketAction_Request, handleRangeRequest)
 }
 
-func handleNpcRangeRequest(p *player.Player, _ *player.EoReader) error {
+func handleNpcRangeRequest(ctx context.Context, p *player.Player, _ *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil {
 		return nil
 	}
@@ -30,7 +31,7 @@ func handleNpcRangeRequest(p *player.Player, _ *player.EoReader) error {
 	return nil
 }
 
-func handlePlayerRangeRequest(p *player.Player, _ *player.EoReader) error {
+func handlePlayerRangeRequest(ctx context.Context, p *player.Player, _ *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil {
 		return nil
 	}
@@ -45,7 +46,7 @@ func handlePlayerRangeRequest(p *player.Player, _ *player.EoReader) error {
 	return nil
 }
 
-func handleRangeRequest(p *player.Player, _ *player.EoReader) error {
+func handleRangeRequest(ctx context.Context, p *player.Player, _ *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil {
 		return nil
 	}

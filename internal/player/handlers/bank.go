@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/avdo/goeoserv/internal/player"
@@ -15,7 +16,7 @@ func init() {
 	player.Register(eonet.PacketFamily_Bank, eonet.PacketAction_Take, handleBankWithdraw)
 }
 
-func handleBankOpen(p *player.Player, reader *player.EoReader) error {
+func handleBankOpen(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}
@@ -36,7 +37,7 @@ func handleBankOpen(p *player.Player, reader *player.EoReader) error {
 	})
 }
 
-func handleBankDeposit(p *player.Player, reader *player.EoReader) error {
+func handleBankDeposit(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}
@@ -64,7 +65,7 @@ func handleBankDeposit(p *player.Player, reader *player.EoReader) error {
 	})
 }
 
-func handleBankWithdraw(p *player.Player, reader *player.EoReader) error {
+func handleBankWithdraw(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}

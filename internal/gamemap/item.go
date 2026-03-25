@@ -37,10 +37,11 @@ func (m *GameMap) DropItem(itemID, amount, x, y, droppedBy int) int {
 		DroppedBy: droppedBy,
 	}
 
-	// Enforce max items on map
+	// Enforce max items on map — copy to avoid backing array leak
 	if len(m.groundItems) >= m.cfg.Map.MaxItems {
-		// Remove oldest item
-		m.groundItems = m.groundItems[1:]
+		copy(m.groundItems, m.groundItems[1:])
+		m.groundItems[len(m.groundItems)-1] = nil
+		m.groundItems = m.groundItems[:len(m.groundItems)-1]
 	}
 
 	m.groundItems = append(m.groundItems, item)
@@ -88,7 +89,7 @@ func (m *GameMap) GetGroundItemInfos() []server.ItemMapInfo {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	var infos []server.ItemMapInfo
+	infos := make([]server.ItemMapInfo, 0, len(m.groundItems))
 	for _, item := range m.groundItems {
 		infos = append(infos, server.ItemMapInfo{
 			Uid:    item.UID,

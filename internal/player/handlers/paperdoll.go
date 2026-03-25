@@ -20,7 +20,7 @@ func init() {
 	player.Register(eonet.PacketFamily_Paperdoll, eonet.PacketAction_Remove, handlePaperdollRemove)
 }
 
-func handlePaperdollRequest(p *player.Player, reader *player.EoReader) error {
+func handlePaperdollRequest(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}
@@ -40,7 +40,7 @@ func handlePaperdollRequest(p *player.Player, reader *player.EoReader) error {
 	)
 
 	// Look up character by name (resolved from player ID via world)
-	err := p.DB.QueryRow(context.Background(),
+	err := p.DB.QueryRow(ctx,
 		`SELECT c.name, COALESCE(c.home, ''), COALESCE(c.partner, ''), COALESCE(c.title, ''),
 		        COALESCE(g.name, ''), COALESCE(c.guild_rank_string, ''),
 		        c.class, c.gender, c.admin_level,
@@ -102,7 +102,7 @@ func handlePaperdollRequest(p *player.Player, reader *player.EoReader) error {
 }
 
 // handlePaperdollAdd equips an item from inventory.
-func handlePaperdollAdd(p *player.Player, reader *player.EoReader) error {
+func handlePaperdollAdd(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}
@@ -181,7 +181,7 @@ func handlePaperdollAdd(p *player.Player, reader *player.EoReader) error {
 }
 
 // handlePaperdollRemove unequips an item.
-func handlePaperdollRemove(p *player.Player, reader *player.EoReader) error {
+func handlePaperdollRemove(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}

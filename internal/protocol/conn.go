@@ -5,10 +5,13 @@ import (
 	"io"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/ethanmoffat/eolib-go/v3/data"
 	"github.com/gorilla/websocket"
 )
+
+const readDeadline = 60 * time.Second
 
 // ConnType distinguishes TCP from WebSocket connections.
 type ConnType int
@@ -44,6 +47,9 @@ func NewWebSocketConn(ws *websocket.Conn) *Conn {
 func (c *Conn) ReadPacket() ([]byte, error) {
 	switch c.connType {
 	case ConnTCP:
+		// Set read deadline to detect dead connections
+		_ = c.tcp.SetReadDeadline(time.Now().Add(readDeadline))
+
 		// Read 2-byte length prefix
 		lengthBuf := make([]byte, 2)
 		if _, err := io.ReadFull(c.tcp, lengthBuf); err != nil {
@@ -66,6 +72,7 @@ func (c *Conn) ReadPacket() ([]byte, error) {
 		return packetBuf, nil
 
 	case ConnWebSocket:
+		_ = c.ws.SetReadDeadline(time.Now().Add(readDeadline))
 		msgType, msg, err := c.ws.ReadMessage()
 		if err != nil {
 			return nil, err

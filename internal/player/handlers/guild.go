@@ -28,7 +28,7 @@ func init() {
 	player.Register(eonet.PacketFamily_Guild, eonet.PacketAction_Agree, handleGuildAgree)
 }
 
-func handleGuildRequest(p *player.Player, reader *player.EoReader) error {
+func handleGuildRequest(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}
@@ -47,7 +47,7 @@ func handleGuildRequest(p *player.Player, reader *player.EoReader) error {
 	})
 }
 
-func handleGuildCreate(p *player.Player, reader *player.EoReader) error {
+func handleGuildCreate(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}
@@ -58,7 +58,7 @@ func handleGuildCreate(p *player.Player, reader *player.EoReader) error {
 		return nil
 	}
 
-	result, err := p.DB.DB().ExecContext(context.Background(),
+	result, err := p.DB.DB().ExecContext(ctx,
 		`INSERT INTO guilds (tag, name, description) VALUES (?, ?, ?)`,
 		pkt.GuildTag, pkt.GuildName, pkt.Description)
 	if err != nil {
@@ -68,7 +68,7 @@ func handleGuildCreate(p *player.Player, reader *player.EoReader) error {
 
 	guildID, _ := result.LastInsertId()
 
-	_ = p.DB.Execute(context.Background(),
+	_ = p.DB.Execute(ctx,
 		`UPDATE characters SET guild_id = ? WHERE id = ?`, guildID, *p.CharacterID)
 
 	slog.Info("guild created", "tag", pkt.GuildTag, "name", pkt.GuildName, "player", p.ID)
@@ -81,7 +81,7 @@ func handleGuildCreate(p *player.Player, reader *player.EoReader) error {
 	})
 }
 
-func handleGuildOpen(p *player.Player, reader *player.EoReader) error {
+func handleGuildOpen(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}
@@ -99,7 +99,7 @@ func handleGuildOpen(p *player.Player, reader *player.EoReader) error {
 	})
 }
 
-func handleGuildTell(p *player.Player, reader *player.EoReader) error {
+func handleGuildTell(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}
@@ -109,7 +109,7 @@ func handleGuildTell(p *player.Player, reader *player.EoReader) error {
 		return nil
 	}
 	// Look up guild members from DB
-	rows, err := p.DB.Query(context.Background(),
+	rows, err := p.DB.Query(ctx,
 		`SELECT c.name, COALESCE(c.level, 0)
 		 FROM characters c
 		 JOIN guilds g ON c.guild_id = g.id
@@ -150,14 +150,14 @@ func handleGuildTell(p *player.Player, reader *player.EoReader) error {
 }
 
 // Remaining guild handlers — stubs
-func handleGuildAccept(_ *player.Player, _ *player.EoReader) error { return nil }
-func handleGuildPlayer(_ *player.Player, _ *player.EoReader) error { return nil }
-func handleGuildTake(_ *player.Player, _ *player.EoReader) error   { return nil }
-func handleGuildUse(_ *player.Player, _ *player.EoReader) error    { return nil }
-func handleGuildBuy(_ *player.Player, _ *player.EoReader) error    { return nil }
-func handleGuildReport(_ *player.Player, _ *player.EoReader) error { return nil }
-func handleGuildJunk(_ *player.Player, _ *player.EoReader) error   { return nil }
-func handleGuildKick(_ *player.Player, _ *player.EoReader) error   { return nil }
-func handleGuildRank(_ *player.Player, _ *player.EoReader) error   { return nil }
-func handleGuildRemove(_ *player.Player, _ *player.EoReader) error { return nil }
-func handleGuildAgree(_ *player.Player, _ *player.EoReader) error  { return nil }
+func handleGuildAccept(_ context.Context, _ *player.Player, _ *player.EoReader) error { return nil }
+func handleGuildPlayer(_ context.Context, _ *player.Player, _ *player.EoReader) error { return nil }
+func handleGuildTake(_ context.Context, _ *player.Player, _ *player.EoReader) error   { return nil }
+func handleGuildUse(_ context.Context, _ *player.Player, _ *player.EoReader) error    { return nil }
+func handleGuildBuy(_ context.Context, _ *player.Player, _ *player.EoReader) error    { return nil }
+func handleGuildReport(_ context.Context, _ *player.Player, _ *player.EoReader) error { return nil }
+func handleGuildJunk(_ context.Context, _ *player.Player, _ *player.EoReader) error   { return nil }
+func handleGuildKick(_ context.Context, _ *player.Player, _ *player.EoReader) error   { return nil }
+func handleGuildRank(_ context.Context, _ *player.Player, _ *player.EoReader) error   { return nil }
+func handleGuildRemove(_ context.Context, _ *player.Player, _ *player.EoReader) error { return nil }
+func handleGuildAgree(_ context.Context, _ *player.Player, _ *player.EoReader) error  { return nil }

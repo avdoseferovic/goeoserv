@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/avdo/goeoserv/internal/player"
@@ -15,7 +16,7 @@ func init() {
 	player.Register(eonet.PacketFamily_Shop, eonet.PacketAction_Sell, handleShopSell)
 }
 
-func handleShopOpen(p *player.Player, reader *player.EoReader) error {
+func handleShopOpen(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}
@@ -35,7 +36,7 @@ func handleShopOpen(p *player.Player, reader *player.EoReader) error {
 	})
 }
 
-func handleShopBuy(p *player.Player, reader *player.EoReader) error {
+func handleShopBuy(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}
@@ -72,7 +73,7 @@ func handleShopBuy(p *player.Player, reader *player.EoReader) error {
 	})
 }
 
-func handleShopSell(p *player.Player, reader *player.EoReader) error {
+func handleShopSell(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
 	}

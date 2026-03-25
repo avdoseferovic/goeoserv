@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"github.com/avdo/goeoserv/internal/player"
 	eonet "github.com/ethanmoffat/eolib-go/v3/protocol/net"
 	"github.com/ethanmoffat/eolib-go/v3/protocol/net/server"
@@ -10,7 +11,7 @@ func init() {
 	player.Register(eonet.PacketFamily_Refresh, eonet.PacketAction_Request, handleRefreshRequest)
 }
 
-func handleRefreshRequest(p *player.Player, _ *player.EoReader) error {
+func handleRefreshRequest(ctx context.Context, p *player.Player, _ *player.EoReader) error {
 	if p.State != player.StateInGame || p.World == nil {
 		return nil
 	}

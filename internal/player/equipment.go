@@ -175,13 +175,17 @@ func (e *Equipment) FindItemType(itemID int) (eopub.ItemType, int) {
 	return eopub.Item_General, 0
 }
 
-// AllIDs returns a slice of all equipped item IDs (for stat calculation).
-func (e *Equipment) AllIDs() []int {
-	return []int{
+// ForEachID calls fn for each non-zero equipped item ID, avoiding allocation.
+func (e *Equipment) ForEachID(fn func(itemID int)) {
+	for _, id := range [...]int{
 		e.Boots, e.Accessory, e.Gloves, e.Belt,
 		e.Armor, e.Necklace, e.Hat, e.Shield, e.Weapon,
 		e.Ring[0], e.Ring[1], e.Armlet[0], e.Armlet[1],
 		e.Bracer[0], e.Bracer[1],
+	} {
+		if id != 0 {
+			fn(id)
+		}
 	}
 }
 
@@ -224,13 +228,10 @@ func (p *Player) CalculateStats() {
 	var eqMinDmg, eqMaxDmg, eqAccuracy, eqEvade, eqArmor int
 	totalWeight := 0
 
-	for _, itemID := range p.Equipment.AllIDs() {
-		if itemID == 0 {
-			continue
-		}
+	p.Equipment.ForEachID(func(itemID int) {
 		item := pubdata.GetItem(itemID)
 		if item == nil {
-			continue
+			return
 		}
 		totalWeight += item.Weight
 		eqHP += item.Hp
@@ -246,7 +247,7 @@ func (p *Player) CalculateStats() {
 		adjAgi += item.Agi
 		adjCon += item.Con
 		adjCha += item.Cha
-	}
+	})
 
 	// Inventory weight
 	for itemID, amount := range p.Inventory {

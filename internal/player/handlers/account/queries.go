@@ -13,9 +13,9 @@ import (
 )
 
 // Exists checks if an account with the given username exists.
-func Exists(database *db.Database, username string) (bool, error) {
+func Exists(ctx context.Context, database *db.Database, username string) (bool, error) {
 	var id int
-	err := database.QueryRow(context.Background(),
+	err := database.QueryRow(ctx,
 		`SELECT id FROM accounts WHERE name = ?`,
 		strings.ToLower(username)).Scan(&id)
 	if err == sql.ErrNoRows {
@@ -28,9 +28,9 @@ func Exists(database *db.Database, username string) (bool, error) {
 }
 
 // CharacterExists checks if a character with the given name exists.
-func CharacterExists(database *db.Database, name string) (bool, error) {
+func CharacterExists(ctx context.Context, database *db.Database, name string) (bool, error) {
 	var id int
-	err := database.QueryRow(context.Background(),
+	err := database.QueryRow(ctx,
 		`SELECT id FROM characters WHERE name = ?`,
 		strings.ToLower(name)).Scan(&id)
 	if err == sql.ErrNoRows {
@@ -43,16 +43,16 @@ func CharacterExists(database *db.Database, name string) (bool, error) {
 }
 
 // GetCharacterCount returns the number of characters for an account.
-func GetCharacterCount(database *db.Database, accountID int) (int, error) {
+func GetCharacterCount(ctx context.Context, database *db.Database, accountID int) (int, error) {
 	var count int
-	err := database.QueryRow(context.Background(),
+	err := database.QueryRow(ctx,
 		`SELECT COUNT(1) FROM characters WHERE account_id = ?`, accountID).Scan(&count)
 	return count, err
 }
 
 // GetCharacterList returns the character selection list entries for an account.
-func GetCharacterList(database *db.Database, accountID int) ([]server.CharacterSelectionListEntry, error) {
-	rows, err := database.Query(context.Background(),
+func GetCharacterList(ctx context.Context, database *db.Database, accountID int) ([]server.CharacterSelectionListEntry, error) {
+	rows, err := database.Query(ctx,
 		`SELECT id, name, level, gender, hair_style, hair_color, race, admin_level,
 		        boots, armor, hat, shield, weapon
 		 FROM characters WHERE account_id = ?`, accountID)

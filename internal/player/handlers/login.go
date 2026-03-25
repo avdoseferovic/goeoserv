@@ -17,7 +17,7 @@ func init() {
 	player.Register(eonet.PacketFamily_Login, eonet.PacketAction_Request, handleLoginRequest)
 }
 
-func handleLoginRequest(p *player.Player, reader *player.EoReader) error {
+func handleLoginRequest(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	var pkt client.LoginRequestClientPacket
 	if err := pkt.Deserialize(reader); err != nil {
 		slog.Error("failed to deserialize login request", "id", p.ID, "err", err)
@@ -41,7 +41,7 @@ func handleLoginRequest(p *player.Player, reader *player.EoReader) error {
 	p.LoginAttempts++
 
 	// Check account exists
-	exists, err := account.Exists(p.DB, pkt.Username)
+	exists, err := account.Exists(ctx, p.DB, pkt.Username)
 	if err != nil {
 		slog.Error("error checking account", "id", p.ID, "err", err)
 		p.Close()
@@ -62,7 +62,7 @@ func handleLoginRequest(p *player.Player, reader *player.EoReader) error {
 	// Check ban (duration=0 means permanent, otherwise duration in minutes from created_at)
 	var banned bool
 	var banCount int
-	err = p.DB.QueryRow(context.Background(),
+	err = p.DB.QueryRow(ctx,
 		`SELECT COUNT(1) FROM bans WHERE account_id = (SELECT id FROM accounts WHERE name = ?)
 		 AND (duration = 0 OR datetime(created_at, '+' || duration || ' minutes') > datetime('now'))`,
 		strings.ToLower(pkt.Username)).Scan(&banCount)
@@ -83,7 +83,7 @@ func handleLoginRequest(p *player.Player, reader *player.EoReader) error {
 	// Get password hash
 	var accountID int
 	var username, passwordHash string
-	err = p.DB.QueryRow(context.Background(),
+	err = p.DB.QueryRow(ctx,
 		`SELECT id, name, password_hash FROM accounts WHERE name = ?`,
 		strings.ToLower(pkt.Username)).Scan(&accountID, &username, &passwordHash)
 	if err != nil {
@@ -112,7 +112,7 @@ func handleLoginRequest(p *player.Player, reader *player.EoReader) error {
 	}
 
 	// Get character list
-	characters, err := account.GetCharacterList(p.DB, accountID)
+	characters, err := account.GetCharacterList(ctx, p.DB, accountID)
 	if err != nil {
 		slog.Error("error getting character list", "id", p.ID, "err", err)
 		p.Close()

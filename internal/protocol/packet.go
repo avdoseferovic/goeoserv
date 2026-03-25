@@ -3,11 +3,20 @@ package protocol
 import (
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"github.com/ethanmoffat/eolib-go/v3/data"
 	"github.com/ethanmoffat/eolib-go/v3/encrypt"
 	eonet "github.com/ethanmoffat/eolib-go/v3/protocol/net"
 )
+
+// packetBufPool reduces GC pressure by reusing packet send buffers.
+var packetBufPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 0, 256)
+		return &b
+	},
+}
 
 // PacketBus handles reading/writing EO protocol packets over a connection.
 type PacketBus struct {
@@ -32,7 +41,9 @@ func (pb *PacketBus) Send(action eonet.PacketAction, family eonet.PacketFamily, 
 	packetSize := 2 + len(payload)
 	lengthBytes := data.EncodeNumber(packetSize)
 
-	buf := make([]byte, 0, 2+packetSize)
+	bufp := packetBufPool.Get().(*[]byte)
+	buf := (*bufp)[:0]
+
 	buf = append(buf, lengthBytes[0], lengthBytes[1])
 	buf = append(buf, byte(action), byte(family))
 	buf = append(buf, payload...)
@@ -43,7 +54,12 @@ func (pb *PacketBus) Send(action eonet.PacketAction, family eonet.PacketFamily, 
 	}
 
 	slog.Debug("packet send", "action", int(action), "family", int(family), "len", len(buf), "raw", fmt.Sprintf("%x", buf))
-	return pb.conn.WritePacket(buf)
+	err := pb.conn.WritePacket(buf)
+
+	*bufp = buf
+	packetBufPool.Put(bufp)
+
+	return err
 }
 
 // SendPacket serializes an eolib Packet and sends it.

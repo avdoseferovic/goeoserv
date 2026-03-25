@@ -18,7 +18,7 @@ import (
 )
 
 // handleCommand processes a $ admin command. Returns true if the message was a command.
-func handleCommand(p *player.Player, message string) bool {
+func handleCommand(ctx context.Context, p *player.Player, message string) bool {
 	if !strings.HasPrefix(message, "$") {
 		return false
 	}
@@ -35,7 +35,7 @@ func handleCommand(p *player.Player, message string) bool {
 	case "kick":
 		handleCmdKick(p, args)
 	case "ban":
-		handleCmdBan(p, args)
+		handleCmdBan(ctx, p, args)
 	case "jail":
 		handleCmdJail(p, args)
 	case "free":
@@ -88,7 +88,7 @@ func handleCmdKick(p *player.Player, args []string) {
 }
 
 // $ban <name> [duration_minutes] — requires admin >= 2
-func handleCmdBan(p *player.Player, args []string) {
+func handleCmdBan(ctx context.Context, p *player.Player, args []string) {
 	if p.CharAdmin < 2 || len(args) < 1 {
 		return
 	}
@@ -101,13 +101,13 @@ func handleCmdBan(p *player.Player, args []string) {
 
 	// Look up account ID for the target
 	var accountID int
-	err := p.DB.QueryRow(context.Background(),
+	err := p.DB.QueryRow(ctx,
 		`SELECT account_id FROM characters WHERE name = ?`, targetName).Scan(&accountID)
 	if err != nil {
 		return
 	}
 
-	_ = p.DB.Execute(context.Background(),
+	_ = p.DB.Execute(ctx,
 		`INSERT INTO bans (account_id, duration) VALUES (?, ?)`, accountID, duration)
 
 	slog.Info("admin ban", "admin", p.CharName, "target", targetName, "duration", duration)
