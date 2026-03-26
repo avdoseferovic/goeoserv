@@ -56,6 +56,8 @@ func handleCommand(ctx context.Context, p *player.Player, message string) bool {
 		handleCmdFind(p, args)
 	case "info", "loc":
 		handleCmdInfo(p)
+	case "evacuate":
+		handleCmdEvacuate(p)
 	default:
 		return true // suppress unknown $commands so they don't leak to chat
 	}
@@ -371,6 +373,21 @@ func handleCmdFind(p *player.Player, args []string) {
 	if found == 0 {
 		sendMsg(p, "No items found matching '"+search+"'")
 	}
+}
+
+// $evacuate — requires admin >= 2
+func handleCmdEvacuate(p *player.Player) {
+	if p.CharAdmin < 2 || p.World == nil {
+		return
+	}
+
+	timerTicks := p.Cfg.Evacuate.TimerSeconds * 8 // convert seconds to ticks
+	if timerTicks <= 0 {
+		timerTicks = 480 // default 60 seconds
+	}
+	p.World.StartEvacuate(p.MapID, timerTicks)
+
+	slog.Info("admin evacuate", "admin", p.CharName, "map", p.MapID)
 }
 
 func sendMsg(p *player.Player, msg string) {

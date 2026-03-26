@@ -33,7 +33,7 @@ func handleItemGet(ctx context.Context, p *player.Player, reader *player.EoReade
 		return nil
 	}
 
-	itemID, amount, ok := p.World.PickupItem(p.MapID, pkt.ItemIndex)
+	itemID, amount, ok := p.World.PickupItem(p.MapID, pkt.ItemIndex, p.ID)
 	if !ok {
 		return nil
 	}
@@ -71,6 +71,12 @@ func handleItemDrop(ctx context.Context, p *player.Player, reader *player.EoRead
 		// ByteCoords are offset by 1 (raw byte encoding)
 		dropX = pkt.Coords.X - 1
 		dropY = pkt.Coords.Y - 1
+	}
+
+	// Enforce drop distance
+	if dist := p.Cfg.World.DropDistance; dist > 0 && p.DistanceTo(dropX, dropY) > dist {
+		p.AddItem(itemID, amount) // rollback
+		return nil
 	}
 
 	uid := p.World.DropItem(p.MapID, itemID, amount, dropX, dropY, p.ID)

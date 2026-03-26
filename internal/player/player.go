@@ -43,7 +43,7 @@ type WorldInterface interface {
 	DamageNpc(mapID, npcIndex, playerID, damage int) (actualDmg int, killed bool, hpPct int)
 	GetNpcAt(mapID, x, y int) int // returns npc index or -1
 	DropItem(mapID, itemID, amount, x, y, droppedBy int) int
-	PickupItem(mapID, uid int) (itemID, amount int, ok bool)
+	PickupItem(mapID, uid, playerID int) (itemID, amount int, ok bool)
 	GetPlayerBus(playerID int) any
 	OnlinePlayerCount() int
 	IsLoggedIn(accountID int) bool
@@ -61,6 +61,7 @@ type WorldInterface interface {
 	GetChestItems(mapID, x, y int) any
 	AddChestItem(mapID, x, y, itemID, amount int) any
 	TakeChestItem(mapID, x, y, itemID int) (amount int, items any)
+	StartEvacuate(mapID, ticks int)
 }
 
 type Player struct {
@@ -105,6 +106,7 @@ type Player struct {
 	// Inventory: itemID -> amount
 	Inventory     map[int]int
 	GoldBank      int
+	BankLevel     int // locker upgrade level
 	Stats         CharacterStats
 	StatPoints    int
 	SkillPoints   int

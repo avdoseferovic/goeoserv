@@ -69,6 +69,13 @@ func handleGuildCreate(ctx context.Context, p *player.Player, reader *player.EoR
 		return nil
 	}
 
+	// Deduct guild creation cost
+	if cost := p.Cfg.Guild.CreateCost; cost > 0 {
+		if !p.RemoveItem(1, cost) {
+			return nil
+		}
+	}
+
 	result, err := p.DB.DB().ExecContext(ctx,
 		`INSERT INTO guilds (tag, name, description) VALUES (?, ?, ?)`,
 		pkt.GuildTag, pkt.GuildName, pkt.Description)

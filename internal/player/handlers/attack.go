@@ -39,20 +39,39 @@ func handleAttackUse(ctx context.Context, p *player.Player, reader *player.EoRea
 		Direction: pkt.Direction,
 	})
 
-	// Check if there's an NPC in front of the player
-	targetX, targetY := p.CharX, p.CharY
-	switch pkt.Direction {
-	case eoproto.Direction_Down:
-		targetY++
-	case eoproto.Direction_Left:
-		targetX--
-	case eoproto.Direction_Up:
-		targetY--
-	case eoproto.Direction_Right:
-		targetX++
+	// Determine weapon range (default 1 = melee)
+	attackRange := 1
+	for _, wr := range p.Cfg.Combat.WeaponRanges {
+		if wr.Weapon == p.Equipment.Weapon {
+			attackRange = wr.Range
+			break
+		}
 	}
 
-	npcIndex := p.World.GetNpcAt(p.MapID, targetX, targetY)
+	// Scan tiles in attack direction for the first NPC in range
+	dx, dy := 0, 0
+	switch pkt.Direction {
+	case eoproto.Direction_Down:
+		dy = 1
+	case eoproto.Direction_Left:
+		dx = -1
+	case eoproto.Direction_Up:
+		dy = -1
+	case eoproto.Direction_Right:
+		dx = 1
+	}
+
+	npcIndex := -1
+	targetX, targetY := p.CharX, p.CharY
+	for i := range attackRange {
+		_ = i
+		targetX += dx
+		targetY += dy
+		if idx := p.World.GetNpcAt(p.MapID, targetX, targetY); idx >= 0 {
+			npcIndex = idx
+			break
+		}
+	}
 	if npcIndex < 0 {
 		return nil
 	}
@@ -121,6 +140,9 @@ func handleAttackUse(ctx context.Context, p *player.Player, reader *player.EoRea
 			if baseExp <= 0 {
 				baseExp = 1
 			}
+		}
+		if mult := p.Cfg.World.ExpMultiplier; mult > 1 {
+			baseExp *= mult
 		}
 
 		// Drop items from NPC drop table

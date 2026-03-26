@@ -15,11 +15,12 @@ func init() {
 
 // GroundItem represents an item on the map floor.
 type GroundItem struct {
-	UID       int
-	ItemID    int
-	Amount    int
-	X, Y      int
-	DroppedBy int // playerID who dropped it, 0 for NPC/chest drops
+	UID            int
+	ItemID         int
+	Amount         int
+	X, Y           int
+	DroppedBy      int // playerID who dropped it, 0 for NPC/chest drops
+	ProtectedTicks int // ticks remaining where only DroppedBy can pick up
 }
 
 // DropItem adds an item to the map floor. Returns the UID.
@@ -28,13 +29,23 @@ func (m *GameMap) DropItem(itemID, amount, x, y, droppedBy int) int {
 	defer m.mu.Unlock()
 
 	uid := int(nextItemUID.Add(1))
+
+	// Calculate drop protection ticks (8 ticks per second)
+	protectedTicks := 0
+	if droppedBy > 0 && m.cfg.World.DropProtectPlayer > 0 {
+		protectedTicks = m.cfg.World.DropProtectPlayer * 8
+	} else if droppedBy == 0 && m.cfg.World.DropProtectNPC > 0 {
+		protectedTicks = m.cfg.World.DropProtectNPC * 8
+	}
+
 	item := &GroundItem{
-		UID:       uid,
-		ItemID:    itemID,
-		Amount:    amount,
-		X:         x,
-		Y:         y,
-		DroppedBy: droppedBy,
+		UID:            uid,
+		ItemID:         itemID,
+		Amount:         amount,
+		X:              x,
+		Y:              y,
+		DroppedBy:      droppedBy,
+		ProtectedTicks: protectedTicks,
 	}
 
 	// Enforce max items on map — copy to avoid backing array leak
@@ -63,13 +74,18 @@ func (m *GameMap) DropItem(itemID, amount, x, y, droppedBy int) int {
 	return uid
 }
 
-// PickupItem removes a ground item by UID and returns it. Returns nil if not found.
-func (m *GameMap) PickupItem(uid int) *GroundItem {
+// PickupItem removes a ground item by UID and returns it. Returns nil if not found
+// or if the item is still protected and playerID is not the owner.
+func (m *GameMap) PickupItem(uid, playerID int) *GroundItem {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	for i, item := range m.groundItems {
 		if item.UID == uid {
+			// Drop protection: only owner can pick up while protected
+			if item.ProtectedTicks > 0 && item.DroppedBy != playerID {
+				return nil
+			}
 			m.groundItems = append(m.groundItems[:i], m.groundItems[i+1:]...)
 
 			// Broadcast item removal

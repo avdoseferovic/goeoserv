@@ -54,6 +54,22 @@ func handleLockerAdd(ctx context.Context, p *player.Player, reader *player.EoRea
 		return nil
 	}
 
+	// Check locker capacity: base_size + (bank_level * size_step)
+	capacity := p.Cfg.Bank.BaseSize + (p.BankLevel * p.Cfg.Bank.SizeStep)
+	currentItems, _ := queryLockerItems(ctx, p)
+	if len(currentItems) >= capacity {
+		return nil
+	}
+
+	// Enforce max item amount per stack in bank
+	if maxAmt := p.Cfg.Bank.MaxItemAmount; maxAmt > 0 {
+		for _, li := range currentItems {
+			if li.Id == itemID && li.Amount+amount > maxAmt {
+				return nil
+			}
+		}
+	}
+
 	if !p.RemoveItem(itemID, amount) {
 		return nil
 	}
@@ -127,7 +143,35 @@ func handleLockerTake(ctx context.Context, p *player.Player, reader *player.EoRe
 	})
 }
 
-func handleLockerBuy(_ context.Context, _ *player.Player, _ *player.EoReader) error { return nil }
+func handleLockerBuy(ctx context.Context, p *player.Player, reader *player.EoReader) error {
+	if p.State != player.StateInGame || p.CharacterID == nil {
+		return nil
+	}
+
+	// Check max upgrades
+	if p.BankLevel >= p.Cfg.Bank.MaxUpgrades {
+		return nil
+	}
+
+	// Calculate cost: base + (level * step)
+	cost := p.Cfg.Bank.UpgradeBaseCost + (p.BankLevel * p.Cfg.Bank.UpgradeCostStep)
+	if !p.RemoveItem(1, cost) {
+		return nil
+	}
+
+	p.BankLevel++
+
+	// Persist to DB
+	if p.CharacterID != nil {
+		_ = p.DB.Execute(ctx,
+			`UPDATE characters SET bank_level = ? WHERE id = ?`, p.BankLevel, *p.CharacterID)
+	}
+
+	return p.Bus.SendPacket(&server.LockerBuyServerPacket{
+		GoldAmount:     p.Inventory[1],
+		LockerUpgrades: p.BankLevel,
+	})
+}
 
 func queryLockerItems(ctx context.Context, p *player.Player) ([]eonet.ThreeItem, error) {
 	rows, err := p.DB.Query(ctx,

@@ -105,15 +105,21 @@ func handleTradeAdd(ctx context.Context, p *player.Player, reader *player.EoRead
 		return nil
 	}
 
+	// Enforce trade amount limit
+	amount := pkt.AddItem.Amount
+	if maxTrade := p.Cfg.Limits.MaxTrade; maxTrade > 0 && amount > maxTrade {
+		amount = maxTrade
+	}
+
 	// Check player has enough of the item
-	if p.Inventory[pkt.AddItem.Id] < pkt.AddItem.Amount {
+	if p.Inventory[pkt.AddItem.Id] < amount {
 		return nil
 	}
 
 	if p.TradeItems == nil {
 		p.TradeItems = make(map[int]int)
 	}
-	p.TradeItems[pkt.AddItem.Id] += pkt.AddItem.Amount
+	p.TradeItems[pkt.AddItem.Id] += amount
 
 	// Reset both players' agreement when items change
 	p.TradeAgreed = false

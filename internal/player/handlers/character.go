@@ -89,7 +89,8 @@ func handleCharacterCreate(ctx context.Context, p *player.Player, reader *player
 
 	// Validate appearance
 	if pkt.HairColor < 0 || pkt.HairColor > p.Cfg.Character.MaxHairColor ||
-		pkt.HairStyle < 0 || pkt.HairStyle > p.Cfg.Character.MaxHairStyle {
+		pkt.HairStyle < 0 || pkt.HairStyle > p.Cfg.Character.MaxHairStyle ||
+		pkt.Skin < 0 || pkt.Skin > p.Cfg.Character.MaxSkin {
 		return nil
 	}
 

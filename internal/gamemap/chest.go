@@ -34,6 +34,10 @@ func (m *GameMap) AddChestItem(x, y, itemID, amount int) []ChestItem {
 	}
 	for i := range chest.Items {
 		if chest.Items[i].ItemID == itemID {
+			// Enforce max chest item limit
+			if maxChest := m.cfg.Limits.MaxChest; maxChest > 0 && chest.Items[i].Amount+amount > maxChest {
+				return nil
+			}
 			chest.Items[i].Amount += amount
 			result := make([]ChestItem, len(chest.Items))
 			copy(result, chest.Items)

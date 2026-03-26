@@ -1,0 +1,238 @@
+server:
+  # Host IP the server will listen for incoming connections on
+  host: "0.0.0.0"
+
+  # Host Port the server will listen for incoming connections on
+  port: "8078"
+
+  # Host port the server will listen for incoming websocket connections on
+  # leave blank to disable websockets
+  websocket_port: "8079"
+
+  # Maximum amount of connections to allow to the server
+  max_connections: 300
+
+  # Maximum amount of connections to allow from a single IP (0 for unlimited)
+  max_connections_per_ip: 3
+
+  # Seconds an IP must wait before reconnecting to the server
+  ip_reconnect_limit: 10
+
+  # Number of seconds to wait before dropping an uninitialized connection
+  hangup_delay: 10
+
+  # Maximum amount of players allowed to enter the game
+  max_players: 200
+
+  # How often to send a ping to connected clients (seconds)
+  ping_rate: 60
+
+  # Number of failed login attempts before connection is closed
+  max_login_attempts: 3
+
+  # Validate the sequence number sent by the client
+  enforce_sequence: true
+
+  # Client version
+  min_version: "0.0.28"
+  max_version: "0.3.29"
+
+  # How often the server will save all online characters (minutes, 0 to disable)
+  save_rate: 5
+
+  # Should the first character created be given admin (level 5) privileges?
+  auto_admin: true
+
+database:
+  driver: "sqlite"
+  host: "127.0.0.1"
+  port: "3306"
+  name: "goeoserv"
+  username: "goeoserv"
+  password: "goeoserv"
+
+sln:
+  enabled: false
+  url: "http://www.apollo-games.com/SLN/sln.php/"
+  site: ""
+  hostname: ""
+  server_name: "Untitled Server"
+  rate: 5
+  zone: ""
+
+account:
+  delay_time: 10
+  email_validation: true
+  recovery: true
+  recovery_show_email: true
+  recovery_mask_email: true
+  max_characters: 3
+
+smtp:
+  from_name: ""
+  from_address: ""
+  host: ""
+  port: 587
+  username: ""
+  password: ""
+
+new_character:
+  spawn_map: 192
+  spawn_x: 6
+  spawn_y: 6
+  spawn_direction: 0  # 0=Down, 1=Left, 2=Up, 3=Right
+  home: "Wanderer"
+
+jail:
+  map: 76
+  x: 6
+  y: 7
+  free_map: 76
+  free_x: 9
+  free_y: 11
+
+rescue:
+  map: 4
+  x: 24
+  y: 24
+
+world:
+  drop_distance: 2
+  drop_protect_player: 5
+  drop_protect_npc: 30
+  recover_rate: 720
+  npc_recover_rate: 840
+  chest_spawn_rate: 480
+  exp_multiplier: 1
+  stat_points_per_level: 3
+  skill_points_per_level: 4
+  tick_rate: 125
+  warp_suck_rate: 15
+  ghost_rate: 5
+  drain_rate: 125
+  drain_hp_damage: 0.1
+  drain_tp_damage: 0.1
+  quake_rate: 25
+  spike_rate: 12
+  spike_damage: 0.2
+  info_reveals_drops: true
+
+bard:
+  instrument_items: [49, 50]
+  max_note_id: 36
+
+combat:
+  weapon_ranges:
+    - { weapon: 297, range: 5, arrows: true }
+    - { weapon: 316, range: 5, arrows: true }
+    - { weapon: 457, range: 5, arrows: true }
+    - { weapon: 365, range: 10, arrows: false }
+  enforce_weight: true
+
+map:
+  quakes:
+    - { min_ticks: 3, max_ticks: 29, min_strength: 0, max_strength: 2 }
+    - { min_ticks: 3, max_ticks: 22, min_strength: 0, max_strength: 2 }
+    - { min_ticks: 3, max_ticks: 15, min_strength: 4, max_strength: 6 }
+    - { min_ticks: 2, max_ticks: 8, min_strength: 6, max_strength: 8 }
+  door_close_rate: 3
+  max_items: 250
+
+character:
+  max_name_length: 12
+  max_title_length: 32
+  max_skin: 11
+  max_hair_style: 20
+  max_hair_color: 9
+
+npcs:
+  instant_spawn: false
+  freeze_on_empty_map: true
+  chase_distance: 10
+  bored_timer: 240
+  act_rate: 5
+  speed_0: 5
+  speed_1: 5
+  speed_2: 10
+  speed_3: 15
+  speed_4: 30
+  speed_5: 60
+  speed_6: 120
+  talk_rate: 300
+
+bank:
+  max_item_amount: 200
+  base_size: 25
+  size_step: 5
+  max_upgrades: 7
+  upgrade_base_cost: 1000
+  upgrade_cost_step: 1000
+
+limits:
+  max_bank_gold: 2000000000
+  max_item: 2000000000
+  max_trade: 2000000000
+  max_chest: 10000000
+  max_party_size: 9
+
+board:
+  max_posts: 20
+  max_user_posts: 6
+  max_recent_posts: 2
+  recent_post_time: 30
+  max_subject_length: 32
+  max_post_length: 2048
+  date_posts: true
+  admin_board: 5
+  admin_max_posts: 100
+
+chest:
+  slots: 5
+
+jukebox:
+  cost: 25
+  max_track_id: 20
+  track_timer: 90
+
+barber:
+  base_cost: 0
+  cost_per_level: 200
+
+guild:
+  min_players: 10
+  create_cost: 50000
+  recruit_cost: 1000
+  min_tag_length: 2
+  max_tag_length: 3
+  max_name_length: 24
+  max_description_length: 240
+  max_rank_length: 16
+  default_leader_rank_name: "Leader"
+  default_recruiter_rank_name: "Recruiter"
+  default_new_member_rank_name: "New Member"
+  min_deposit: 1000
+  bank_max_gold: 2000000000
+
+marriage:
+  approval_cost: 500
+  divorce_cost: 10000
+  female_armor_id: 163
+  male_armor_id: 133
+  min_level: 5
+  mfx_id: 40
+  ring_item_id: 374
+  ceremony_start_delay_seconds: 20
+  celebration_effect_id: 1
+
+evacuate:
+  sfx_id: 51
+  timer_seconds: 60
+  timer_step: 15
+
+items:
+  infinite_use_items: []
+  protected_items: []
+
+auto_pickup:
+  enabled: false
+  rate: 8

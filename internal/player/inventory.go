@@ -12,9 +12,25 @@ func (p *Player) RemoveItem(itemID, amount int) bool {
 	return true
 }
 
-// AddItem adds amount to inventory.
+// AddItem adds amount to inventory, capped by Limits.MaxItem.
 func (p *Player) AddItem(itemID, amount int) {
 	p.Inventory[itemID] += amount
+	if maxItem := p.Cfg.Limits.MaxItem; maxItem > 0 && p.Inventory[itemID] > maxItem {
+		p.Inventory[itemID] = maxItem
+	}
+}
+
+// DistanceTo returns the Manhattan distance between the player and a point.
+func (p *Player) DistanceTo(x, y int) int {
+	dx := p.CharX - x
+	dy := p.CharY - y
+	if dx < 0 {
+		dx = -dx
+	}
+	if dy < 0 {
+		dy = -dy
+	}
+	return max(dx, dy)
 }
 
 // GainHP heals the player, clamping to max. Returns actual gain.

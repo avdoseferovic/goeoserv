@@ -10,9 +10,10 @@ import (
 
 	"github.com/avdo/goeoserv/internal/config"
 	"github.com/avdo/goeoserv/internal/db"
-	pubdata "github.com/avdo/goeoserv/internal/pub"
+pubdata "github.com/avdo/goeoserv/internal/pub"
 	"github.com/avdo/goeoserv/internal/quest"
 	"github.com/avdo/goeoserv/internal/server"
+	"github.com/avdo/goeoserv/internal/sln"
 	"github.com/avdo/goeoserv/internal/world"
 
 	// Register packet handlers
@@ -37,14 +38,14 @@ func main() {
 		Level: slog.LevelDebug,
 	})))
 
-	cfg, err := config.Load("config/Config.toml")
+	cfg, err := config.Load("config/config.yaml")
 	if err != nil {
 		slog.Error("failed to load config", "err", err)
 		os.Exit(1)
 	}
 	slog.Info("config loaded")
 
-	database, err := db.New(cfg.Database)
+database, err := db.New(cfg.Database)
 	if err != nil {
 		slog.Error("failed to connect to database", "err", err)
 		os.Exit(1)
@@ -96,6 +97,9 @@ func main() {
 
 	go srv.RunPingLoop(ctx)
 	go srv.RunSaveLoop(ctx)
+
+	// SLN heartbeat
+	go sln.Run(ctx, cfg.SLN, cfg.Server.Port, w.OnlinePlayerCount)
 
 	// Wait for shutdown signal
 	sigCh := make(chan os.Signal, 1)

@@ -53,10 +53,18 @@ func handleBankDeposit(ctx context.Context, p *player.Player, reader *player.EoR
 		return nil
 	}
 
-	if pkt.Amount <= 0 || !p.RemoveItem(1, pkt.Amount) {
+	// Cap deposit to not exceed max bank gold
+	amount := pkt.Amount
+	if amount <= 0 {
 		return nil
 	}
-	p.GoldBank += pkt.Amount
+	if maxGold := p.Cfg.Limits.MaxBankGold; maxGold > 0 {
+		amount = min(amount, maxGold-p.GoldBank)
+	}
+	if amount <= 0 || !p.RemoveItem(1, amount) {
+		return nil
+	}
+	p.GoldBank += amount
 
 	return p.Bus.SendPacket(&server.BankReplyServerPacket{
 		GoldInventory: p.Inventory[1],

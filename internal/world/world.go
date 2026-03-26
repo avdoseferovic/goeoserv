@@ -255,6 +255,12 @@ func (w *World) tick() {
 	for _, m := range w.maps {
 		m.Tick()
 	}
+	// Advance wedding state machines
+	delayTicks := w.cfg.Marriage.CeremonyStartDelaySeconds * 8
+	if delayTicks <= 0 {
+		delayTicks = 160 // default 20 seconds
+	}
+	TickWeddings(delayTicks)
 }
 
 // BroadcastMap sends a packet to all players on a map except excludeID.
@@ -331,12 +337,12 @@ func (w *World) DropItem(mapID, itemID, amount, x, y, droppedBy int) int {
 }
 
 // PickupItem picks up a ground item. Returns (itemID, amount, ok).
-func (w *World) PickupItem(mapID, uid int) (int, int, bool) {
+func (w *World) PickupItem(mapID, uid, playerID int) (int, int, bool) {
 	m := w.getMap(mapID)
 	if m == nil {
 		return 0, 0, false
 	}
-	item := m.PickupItem(uid)
+	item := m.PickupItem(uid, playerID)
 	if item == nil {
 		return 0, 0, false
 	}
@@ -554,4 +560,13 @@ func (w *World) UpdateMapEquipment(mapID, playerID, boots, armor, hat, shield, w
 		return
 	}
 	m.UpdateEquipment(playerID, boots, armor, hat, shield, weapon)
+}
+
+// StartEvacuate begins a map evacuation countdown.
+func (w *World) StartEvacuate(mapID, ticks int) {
+	m := w.getMap(mapID)
+	if m == nil {
+		return
+	}
+	m.StartEvacuate(ticks)
 }

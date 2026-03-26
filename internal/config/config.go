@@ -4,291 +4,294 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/BurntSushi/toml"
+	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
-	Server       Server       `toml:"server"`
-	Database     Database     `toml:"database"`
-	SLN          SLN          `toml:"sln"`
-	Account      Account      `toml:"account"`
-	SMTP         SMTP         `toml:"smtp"`
-	NewCharacter NewCharacter `toml:"new_character"`
-	Jail         Jail         `toml:"jail"`
-	Rescue       Rescue       `toml:"rescue"`
-	World        World        `toml:"world"`
-	Bard         Bard         `toml:"bard"`
-	Combat       Combat       `toml:"combat"`
-	Map          Map          `toml:"map"`
-	Character    Character    `toml:"character"`
-	NPCs         NPCs         `toml:"npcs"`
-	Bank         Bank         `toml:"bank"`
-	Limits       Limits       `toml:"limits"`
-	Board        Board        `toml:"board"`
-	Chest        Chest        `toml:"chest"`
-	Jukebox      Jukebox      `toml:"jukebox"`
-	Barber       Barber       `toml:"barber"`
-	Guild        Guild        `toml:"guild"`
-	Marriage     Marriage     `toml:"marriage"`
-	Evacuate     Evacuate     `toml:"evacuate"`
-	Items        Items        `toml:"items"`
-	AutoPickup   AutoPickup   `toml:"auto_pickup"`
+	Server       Server       `yaml:"server"`
+	Database     Database     `yaml:"database"`
+	SLN          SLN          `yaml:"sln"`
+	Account      Account      `yaml:"account"`
+	SMTP         SMTP         `yaml:"smtp"`
+	NewCharacter NewCharacter `yaml:"new_character"`
+	Jail         Jail         `yaml:"jail"`
+	Rescue       Rescue       `yaml:"rescue"`
+	World        World        `yaml:"world"`
+	Bard         Bard         `yaml:"bard"`
+	Combat       Combat       `yaml:"combat"`
+	Map          Map          `yaml:"map"`
+	Character    Character    `yaml:"character"`
+	NPCs         NPCs         `yaml:"npcs"`
+	Bank         Bank         `yaml:"bank"`
+	Limits       Limits       `yaml:"limits"`
+	Board        Board        `yaml:"board"`
+	Chest        Chest        `yaml:"chest"`
+	Jukebox      Jukebox      `yaml:"jukebox"`
+	Barber       Barber       `yaml:"barber"`
+	Guild        Guild        `yaml:"guild"`
+	Marriage     Marriage     `yaml:"marriage"`
+	Evacuate     Evacuate     `yaml:"evacuate"`
+	Items        Items        `yaml:"items"`
+	AutoPickup   AutoPickup   `yaml:"auto_pickup"`
 }
 
 type Server struct {
-	Host                string `toml:"host"`
-	Port                string `toml:"port"`
-	WebSocketPort       string `toml:"websocket_port"`
-	MaxConnections      int    `toml:"max_connections"`
-	MaxPlayers          int    `toml:"max_players"`
-	MaxConnectionsPerIP int    `toml:"max_connections_per_ip"`
-	IPReconnectLimit    int    `toml:"ip_reconnect_limit"`
-	HangupDelay         int    `toml:"hangup_delay"`
-	MaxLoginAttempts    int    `toml:"max_login_attempts"`
-	PingRate            int    `toml:"ping_rate"`
-	EnforceSequence     bool   `toml:"enforce_sequence"`
-	MinVersion          string `toml:"min_version"`
-	MaxVersion          string `toml:"max_version"`
-	SaveRate            int    `toml:"save_rate"`
-	GeneratePub         bool   `toml:"generate_pub"`
-	Lang                string `toml:"lang"`
-	AutoAdmin           bool   `toml:"auto_admin"`
+	Host                string `yaml:"host"`
+	Port                string `yaml:"port"`
+	WebSocketPort       string `yaml:"websocket_port"`
+	MaxConnections      int    `yaml:"max_connections"`
+	MaxPlayers          int    `yaml:"max_players"`
+	MaxConnectionsPerIP int    `yaml:"max_connections_per_ip"`
+	IPReconnectLimit    int    `yaml:"ip_reconnect_limit"`
+	HangupDelay         int    `yaml:"hangup_delay"`
+	MaxLoginAttempts    int    `yaml:"max_login_attempts"`
+	PingRate            int    `yaml:"ping_rate"`
+	EnforceSequence     bool   `yaml:"enforce_sequence"`
+	MinVersion          string `yaml:"min_version"`
+	MaxVersion          string `yaml:"max_version"`
+	SaveRate            int    `yaml:"save_rate"`
+AutoAdmin           bool   `yaml:"auto_admin"`
 }
 
 type Database struct {
-	Driver   string `toml:"driver"`
-	Host     string `toml:"host"`
-	Port     string `toml:"port"`
-	Name     string `toml:"name"`
-	Username string `toml:"username"`
-	Password string `toml:"password"`
+	Driver   string `yaml:"driver"`
+	Host     string `yaml:"host"`
+	Port     string `yaml:"port"`
+	Name     string `yaml:"name"`
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
 }
 
 type SLN struct {
-	Enabled    bool   `toml:"enabled"`
-	URL        string `toml:"url"`
-	Site       string `toml:"site"`
-	Hostname   string `toml:"hostname"`
-	ServerName string `toml:"server_name"`
-	Rate       int    `toml:"rate"`
-	Zone       string `toml:"zone"`
+	Enabled    bool   `yaml:"enabled"`
+	URL        string `yaml:"url"`
+	Site       string `yaml:"site"`
+	Hostname   string `yaml:"hostname"`
+	ServerName string `yaml:"server_name"`
+	Rate       int    `yaml:"rate"`
+	Zone       string `yaml:"zone"`
 }
 
 type Account struct {
-	DelayTime         int  `toml:"delay_time"`
-	EmailValidation   bool `toml:"email_validation"`
-	Recovery          bool `toml:"recovery"`
-	RecoveryShowEmail bool `toml:"recovery_show_email"`
-	RecoveryMaskEmail bool `toml:"recovery_mask_email"`
-	MaxCharacters     int  `toml:"max_characters"`
+	DelayTime         int  `yaml:"delay_time"`
+	EmailValidation   bool `yaml:"email_validation"`
+	Recovery          bool `yaml:"recovery"`
+	RecoveryShowEmail bool `yaml:"recovery_show_email"`
+	RecoveryMaskEmail bool `yaml:"recovery_mask_email"`
+	MaxCharacters     int  `yaml:"max_characters"`
 }
 
 type SMTP struct {
-	FromName    string `toml:"from_name"`
-	FromAddress string `toml:"from_address"`
-	Host        string `toml:"host"`
-	Port        int    `toml:"port"`
-	Username    string `toml:"username"`
-	Password    string `toml:"password"`
+	FromName    string `yaml:"from_name"`
+	FromAddress string `yaml:"from_address"`
+	Host        string `yaml:"host"`
+	Port        int    `yaml:"port"`
+	Username    string `yaml:"username"`
+	Password    string `yaml:"password"`
 }
 
 type NewCharacter struct {
-	SpawnMap       int    `toml:"spawn_map"`
-	SpawnX         int    `toml:"spawn_x"`
-	SpawnY         int    `toml:"spawn_y"`
-	SpawnDirection int    `toml:"spawn_direction"`
-	Home           string `toml:"home"`
+	SpawnMap       int    `yaml:"spawn_map"`
+	SpawnX         int    `yaml:"spawn_x"`
+	SpawnY         int    `yaml:"spawn_y"`
+	SpawnDirection int    `yaml:"spawn_direction"`
+	Home           string `yaml:"home"`
 }
 
 type Jail struct {
-	Map     int `toml:"map"`
-	X       int `toml:"x"`
-	Y       int `toml:"y"`
-	FreeMap int `toml:"free_map"`
-	FreeX   int `toml:"free_x"`
-	FreeY   int `toml:"free_y"`
+	Map     int `yaml:"map"`
+	X       int `yaml:"x"`
+	Y       int `yaml:"y"`
+	FreeMap int `yaml:"free_map"`
+	FreeX   int `yaml:"free_x"`
+	FreeY   int `yaml:"free_y"`
 }
 
 type Rescue struct {
-	Map int `toml:"map"`
-	X   int `toml:"x"`
-	Y   int `toml:"y"`
+	Map int `yaml:"map"`
+	X   int `yaml:"x"`
+	Y   int `yaml:"y"`
 }
 
 type World struct {
-	DropDistance      int     `toml:"drop_distance"`
-	DropProtectPlayer int     `toml:"drop_protect_player"`
-	DropProtectNPC    int     `toml:"drop_protect_npc"`
-	RecoverRate       int     `toml:"recover_rate"`
-	NPCRecoverRate    int     `toml:"npc_recover_rate"`
-	ChestSpawnRate    int     `toml:"chest_spawn_rate"`
-	ExpMultiplier     int     `toml:"exp_multiplier"`
-	StatPointsPerLvl  int     `toml:"stat_points_per_level"`
-	SkillPointsPerLvl int     `toml:"skill_points_per_level"`
-	TickRate          int     `toml:"tick_rate"`
-	WarpSuckRate      int     `toml:"warp_suck_rate"`
-	GhostRate         int     `toml:"ghost_rate"`
-	DrainRate         int     `toml:"drain_rate"`
-	DrainHPDamage     float64 `toml:"drain_hp_damage"`
-	DrainTPDamage     float64 `toml:"drain_tp_damage"`
-	QuakeRate         int     `toml:"quake_rate"`
-	SpikeRate         int     `toml:"spike_rate"`
-	SpikeDamage       float64 `toml:"spike_damage"`
-	InfoRevealsDrops  bool    `toml:"info_reveals_drops"`
+	DropDistance      int     `yaml:"drop_distance"`
+	DropProtectPlayer int     `yaml:"drop_protect_player"`
+	DropProtectNPC    int     `yaml:"drop_protect_npc"`
+	RecoverRate       int     `yaml:"recover_rate"`
+	NPCRecoverRate    int     `yaml:"npc_recover_rate"`
+	ChestSpawnRate    int     `yaml:"chest_spawn_rate"`
+	ExpMultiplier     int     `yaml:"exp_multiplier"`
+	StatPointsPerLvl  int     `yaml:"stat_points_per_level"`
+	SkillPointsPerLvl int     `yaml:"skill_points_per_level"`
+	TickRate          int     `yaml:"tick_rate"`
+	WarpSuckRate      int     `yaml:"warp_suck_rate"`
+	GhostRate         int     `yaml:"ghost_rate"`
+	DrainRate         int     `yaml:"drain_rate"`
+	DrainHPDamage     float64 `yaml:"drain_hp_damage"`
+	DrainTPDamage     float64 `yaml:"drain_tp_damage"`
+	QuakeRate         int     `yaml:"quake_rate"`
+	SpikeRate         int     `yaml:"spike_rate"`
+	SpikeDamage       float64 `yaml:"spike_damage"`
+	InfoRevealsDrops  bool    `yaml:"info_reveals_drops"`
 }
 
 type Bard struct {
-	InstrumentItems []int `toml:"instrument_items"`
-	MaxNoteID       int   `toml:"max_note_id"`
+	InstrumentItems []int `yaml:"instrument_items"`
+	MaxNoteID       int   `yaml:"max_note_id"`
 }
 
 type WeaponRange struct {
-	Weapon int  `toml:"weapon"`
-	Range  int  `toml:"range"`
-	Arrows bool `toml:"arrows"`
+	Weapon int  `yaml:"weapon"`
+	Range  int  `yaml:"range"`
+	Arrows bool `yaml:"arrows"`
 }
 
 type Combat struct {
-	WeaponRanges  []WeaponRange `toml:"weapon_ranges"`
-	EnforceWeight bool          `toml:"enforce_weight"`
+	WeaponRanges  []WeaponRange `yaml:"weapon_ranges"`
+	EnforceWeight bool          `yaml:"enforce_weight"`
 }
 
 type Quake struct {
-	MinTicks    int `toml:"min_ticks"`
-	MaxTicks    int `toml:"max_ticks"`
-	MinStrength int `toml:"min_strength"`
-	MaxStrength int `toml:"max_strength"`
+	MinTicks    int `yaml:"min_ticks"`
+	MaxTicks    int `yaml:"max_ticks"`
+	MinStrength int `yaml:"min_strength"`
+	MaxStrength int `yaml:"max_strength"`
 }
 
 type Map struct {
-	Quakes        []Quake `toml:"quakes"`
-	DoorCloseRate int     `toml:"door_close_rate"`
-	MaxItems      int     `toml:"max_items"`
+	Quakes        []Quake `yaml:"quakes"`
+	DoorCloseRate int     `yaml:"door_close_rate"`
+	MaxItems      int     `yaml:"max_items"`
 }
 
 type Character struct {
-	MaxNameLength  int `toml:"max_name_length"`
-	MaxTitleLength int `toml:"max_title_length"`
-	MaxSkin        int `toml:"max_skin"`
-	MaxHairStyle   int `toml:"max_hair_style"`
-	MaxHairColor   int `toml:"max_hair_color"`
+	MaxNameLength  int `yaml:"max_name_length"`
+	MaxTitleLength int `yaml:"max_title_length"`
+	MaxSkin        int `yaml:"max_skin"`
+	MaxHairStyle   int `yaml:"max_hair_style"`
+	MaxHairColor   int `yaml:"max_hair_color"`
 }
 
 type NPCs struct {
-	InstantSpawn     bool `toml:"instant_spawn"`
-	FreezeOnEmptyMap bool `toml:"freeze_on_empty_map"`
-	ChaseDistance    int  `toml:"chase_distance"`
-	BoredTimer       int  `toml:"bored_timer"`
-	ActRate          int  `toml:"act_rate"`
-	Speed0           int  `toml:"speed_0"`
-	Speed1           int  `toml:"speed_1"`
-	Speed2           int  `toml:"speed_2"`
-	Speed3           int  `toml:"speed_3"`
-	Speed4           int  `toml:"speed_4"`
-	Speed5           int  `toml:"speed_5"`
-	Speed6           int  `toml:"speed_6"`
-	TalkRate         int  `toml:"talk_rate"`
+	InstantSpawn     bool `yaml:"instant_spawn"`
+	FreezeOnEmptyMap bool `yaml:"freeze_on_empty_map"`
+	ChaseDistance    int  `yaml:"chase_distance"`
+	BoredTimer       int  `yaml:"bored_timer"`
+	ActRate          int  `yaml:"act_rate"`
+	Speed0           int  `yaml:"speed_0"`
+	Speed1           int  `yaml:"speed_1"`
+	Speed2           int  `yaml:"speed_2"`
+	Speed3           int  `yaml:"speed_3"`
+	Speed4           int  `yaml:"speed_4"`
+	Speed5           int  `yaml:"speed_5"`
+	Speed6           int  `yaml:"speed_6"`
+	TalkRate         int  `yaml:"talk_rate"`
 }
 
 type Bank struct {
-	MaxItemAmount   int `toml:"max_item_amount"`
-	BaseSize        int `toml:"base_size"`
-	SizeStep        int `toml:"size_step"`
-	MaxUpgrades     int `toml:"max_upgrades"`
-	UpgradeBaseCost int `toml:"upgrade_base_cost"`
-	UpgradeCostStep int `toml:"upgrade_cost_step"`
+	MaxItemAmount   int `yaml:"max_item_amount"`
+	BaseSize        int `yaml:"base_size"`
+	SizeStep        int `yaml:"size_step"`
+	MaxUpgrades     int `yaml:"max_upgrades"`
+	UpgradeBaseCost int `yaml:"upgrade_base_cost"`
+	UpgradeCostStep int `yaml:"upgrade_cost_step"`
 }
 
 type Limits struct {
-	MaxBankGold  int `toml:"max_bank_gold"`
-	MaxItem      int `toml:"max_item"`
-	MaxTrade     int `toml:"max_trade"`
-	MaxChest     int `toml:"max_chest"`
-	MaxPartySize int `toml:"max_party_size"`
+	MaxBankGold  int `yaml:"max_bank_gold"`
+	MaxItem      int `yaml:"max_item"`
+	MaxTrade     int `yaml:"max_trade"`
+	MaxChest     int `yaml:"max_chest"`
+	MaxPartySize int `yaml:"max_party_size"`
 }
 
 type Board struct {
-	MaxPosts         int  `toml:"max_posts"`
-	MaxUserPosts     int  `toml:"max_user_posts"`
-	MaxRecentPosts   int  `toml:"max_recent_posts"`
-	RecentPostTime   int  `toml:"recent_post_time"`
-	MaxSubjectLength int  `toml:"max_subject_length"`
-	MaxPostLength    int  `toml:"max_post_length"`
-	DatePosts        bool `toml:"date_posts"`
-	AdminBoard       int  `toml:"admin_board"`
-	AdminMaxPosts    int  `toml:"admin_max_posts"`
+	MaxPosts         int  `yaml:"max_posts"`
+	MaxUserPosts     int  `yaml:"max_user_posts"`
+	MaxRecentPosts   int  `yaml:"max_recent_posts"`
+	RecentPostTime   int  `yaml:"recent_post_time"`
+	MaxSubjectLength int  `yaml:"max_subject_length"`
+	MaxPostLength    int  `yaml:"max_post_length"`
+	DatePosts        bool `yaml:"date_posts"`
+	AdminBoard       int  `yaml:"admin_board"`
+	AdminMaxPosts    int  `yaml:"admin_max_posts"`
 }
 
 type Chest struct {
-	Slots int `toml:"slots"`
+	Slots int `yaml:"slots"`
 }
 
 type Jukebox struct {
-	Cost       int `toml:"cost"`
-	MaxTrackID int `toml:"max_track_id"`
-	TrackTimer int `toml:"track_timer"`
+	Cost       int `yaml:"cost"`
+	MaxTrackID int `yaml:"max_track_id"`
+	TrackTimer int `yaml:"track_timer"`
 }
 
 type Barber struct {
-	BaseCost     int `toml:"base_cost"`
-	CostPerLevel int `toml:"cost_per_level"`
+	BaseCost     int `yaml:"base_cost"`
+	CostPerLevel int `yaml:"cost_per_level"`
 }
 
 type Guild struct {
-	MinPlayers            int    `toml:"min_players"`
-	CreateCost            int    `toml:"create_cost"`
-	RecruitCost           int    `toml:"recruit_cost"`
-	MinTagLength          int    `toml:"min_tag_length"`
-	MaxTagLength          int    `toml:"max_tag_length"`
-	MaxNameLength         int    `toml:"max_name_length"`
-	MaxDescriptionLength  int    `toml:"max_description_length"`
-	MaxRankLength         int    `toml:"max_rank_length"`
-	DefaultLeaderRankName string `toml:"default_leader_rank_name"`
-	DefaultRecruiterRank  string `toml:"default_recruiter_rank_name"`
-	DefaultNewMemberRank  string `toml:"default_new_member_rank_name"`
-	MinDeposit            int    `toml:"min_deposit"`
-	BankMaxGold           int    `toml:"bank_max_gold"`
+	MinPlayers            int    `yaml:"min_players"`
+	CreateCost            int    `yaml:"create_cost"`
+	RecruitCost           int    `yaml:"recruit_cost"`
+	MinTagLength          int    `yaml:"min_tag_length"`
+	MaxTagLength          int    `yaml:"max_tag_length"`
+	MaxNameLength         int    `yaml:"max_name_length"`
+	MaxDescriptionLength  int    `yaml:"max_description_length"`
+	MaxRankLength         int    `yaml:"max_rank_length"`
+	DefaultLeaderRankName string `yaml:"default_leader_rank_name"`
+	DefaultRecruiterRank  string `yaml:"default_recruiter_rank_name"`
+	DefaultNewMemberRank  string `yaml:"default_new_member_rank_name"`
+	MinDeposit            int    `yaml:"min_deposit"`
+	BankMaxGold           int    `yaml:"bank_max_gold"`
 }
 
 type Marriage struct {
-	ApprovalCost              int `toml:"approval_cost"`
-	DivorceCost               int `toml:"divorce_cost"`
-	FemaleArmorID             int `toml:"female_armor_id"`
-	MaleArmorID               int `toml:"male_armor_id"`
-	MinLevel                  int `toml:"min_level"`
-	MfxID                     int `toml:"mfx_id"`
-	RingItemID                int `toml:"ring_item_id"`
-	CeremonyStartDelaySeconds int `toml:"ceremony_start_delay_seconds"`
-	CelebrationEffectID       int `toml:"celebration_effect_id"`
+	ApprovalCost              int `yaml:"approval_cost"`
+	DivorceCost               int `yaml:"divorce_cost"`
+	FemaleArmorID             int `yaml:"female_armor_id"`
+	MaleArmorID               int `yaml:"male_armor_id"`
+	MinLevel                  int `yaml:"min_level"`
+	MfxID                     int `yaml:"mfx_id"`
+	RingItemID                int `yaml:"ring_item_id"`
+	CeremonyStartDelaySeconds int `yaml:"ceremony_start_delay_seconds"`
+	CelebrationEffectID       int `yaml:"celebration_effect_id"`
 }
 
 type Evacuate struct {
-	SfxID        int `toml:"sfx_id"`
-	TimerSeconds int `toml:"timer_seconds"`
-	TimerStep    int `toml:"timer_step"`
+	SfxID        int `yaml:"sfx_id"`
+	TimerSeconds int `yaml:"timer_seconds"`
+	TimerStep    int `yaml:"timer_step"`
 }
 
 type Items struct {
-	InfiniteUseItems []int `toml:"infinite_use_items"`
-	ProtectedItems   []int `toml:"protected_items"`
+	InfiniteUseItems []int `yaml:"infinite_use_items"`
+	ProtectedItems   []int `yaml:"protected_items"`
 }
 
 type AutoPickup struct {
-	Enabled bool `toml:"enabled"`
-	Rate    int  `toml:"rate"`
+	Enabled bool `yaml:"enabled"`
+	Rate    int  `yaml:"rate"`
 }
 
 func Load(path string) (*Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading config %s: %w", path, err)
+	}
+
 	var cfg Config
-	if _, err := toml.DecodeFile(path, &cfg); err != nil {
-		return nil, fmt.Errorf("loading config %s: %w", path, err)
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("parsing config %s: %w", path, err)
 	}
 
 	// Apply local overrides if present
-	localPath := path[:len(path)-len(".toml")] + ".local.toml"
-	if _, err := os.Stat(localPath); err == nil {
-		if _, err := toml.DecodeFile(localPath, &cfg); err != nil {
-			return nil, fmt.Errorf("loading local config %s: %w", localPath, err)
+	localPath := path[:len(path)-len(".yaml")] + ".local.yaml"
+	if localData, err := os.ReadFile(localPath); err == nil {
+		if err := yaml.Unmarshal(localData, &cfg); err != nil {
+			return nil, fmt.Errorf("parsing local config %s: %w", localPath, err)
 		}
 	}
 

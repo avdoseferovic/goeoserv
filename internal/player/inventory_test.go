@@ -1,6 +1,15 @@
 package player
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/avdo/goeoserv/internal/config"
+)
+
+// testCfg returns a minimal config for tests.
+func testCfg() *config.Config {
+	return &config.Config{}
+}
 
 func TestRemoveItem(t *testing.T) {
 	t.Parallel()
@@ -57,7 +66,7 @@ func TestRemoveItem(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			p := &Player{Inventory: tt.inventory}
+			p := &Player{Cfg: testCfg(), Inventory: tt.inventory}
 			got := p.RemoveItem(tt.itemID, tt.amount)
 			if got != tt.wantOK {
 				t.Errorf("RemoveItem() = %v, want %v", got, tt.wantOK)
@@ -101,7 +110,7 @@ func TestAddItem(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			p := &Player{Inventory: tt.initial}
+			p := &Player{Cfg: testCfg(), Inventory: tt.initial}
 			p.AddItem(tt.itemID, tt.amount)
 			if p.Inventory[tt.itemID] != tt.wantQty {
 				t.Errorf("qty = %d, want %d", p.Inventory[tt.itemID], tt.wantQty)
@@ -160,7 +169,7 @@ func TestGainHP(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			p := &Player{CharHP: tt.hp, CharMaxHP: tt.maxHP}
+			p := &Player{Cfg: testCfg(), CharHP: tt.hp, CharMaxHP: tt.maxHP}
 			gain := p.GainHP(tt.amount)
 			if gain != tt.wantGain {
 				t.Errorf("GainHP() = %d, want %d", gain, tt.wantGain)
@@ -208,7 +217,7 @@ func TestGainTP(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			p := &Player{CharTP: tt.tp, CharMaxTP: tt.maxTP}
+			p := &Player{Cfg: testCfg(), CharTP: tt.tp, CharMaxTP: tt.maxTP}
 			gain := p.GainTP(tt.amount)
 			if gain != tt.wantGain {
 				t.Errorf("GainTP() = %d, want %d", gain, tt.wantGain)
@@ -251,7 +260,7 @@ func TestGetSpellLevel(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			p := &Player{Spells: tt.spells}
+			p := &Player{Cfg: testCfg(), Spells: tt.spells}
 			got := p.GetSpellLevel(tt.spellID)
 			if got != tt.want {
 				t.Errorf("GetSpellLevel(%d) = %d, want %d", tt.spellID, got, tt.want)

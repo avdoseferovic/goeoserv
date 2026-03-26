@@ -29,8 +29,9 @@ type MapCharacter struct {
 	TP, MaxTP   int
 	Equipment   EquipmentData
 	Bus         *protocol.PacketBus
-	SitState    int // 0 = standing, 1 = chair, 2 = floor
-	PendingWarp *WarpDest
+	SitState      int // 0 = standing, 1 = chair, 2 = floor
+	PendingWarp   *WarpDest
+	WarpSuckTicks int // countdown to warp suck check
 }
 
 // WarpDest stores a pending warp destination.
@@ -57,6 +58,14 @@ type GameMap struct {
 	tiles       map[[2]int]eomap.MapTileSpec
 	warps       map[[2]int]eomap.MapWarp
 	tickCount   int
+
+	// Quake effect state (for maps with quake timed effect)
+	quakeRate     int // randomized interval between quakes (0 = not set)
+	quakeStrength int // randomized intensity
+	quakeTicks    int // counter toward next quake
+
+	// Evacuate state
+	EvacuateTicks int // >0 means evacuation in progress; countdown in ticks
 }
 
 func New(id int, emf *eomap.Emf, cfg *config.Config) *GameMap {
@@ -421,4 +430,11 @@ func (m *GameMap) buildCharMapInfo(ch *MapCharacter) server.CharacterMapInfo {
 		},
 		SitState: server.SitState(ch.SitState),
 	}
+}
+
+// StartEvacuate begins an evacuation countdown on this map.
+func (m *GameMap) StartEvacuate(ticks int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.EvacuateTicks = ticks
 }

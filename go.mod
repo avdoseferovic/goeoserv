@@ -3,11 +3,11 @@ module github.com/avdo/goeoserv
 go 1.25.0
 
 require (
-	github.com/BurntSushi/toml v1.6.0
 	github.com/ethanmoffat/eolib-go/v3 v3.0.1
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/gorilla/websocket v1.5.3
 	golang.org/x/crypto v0.49.0
+	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.47.0
 )
 

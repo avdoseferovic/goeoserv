@@ -6,6 +6,7 @@ import (
 	"github.com/avdo/goeoserv/internal/gamemap"
 	"github.com/avdo/goeoserv/internal/player"
 	eonet "github.com/ethanmoffat/eolib-go/v3/protocol/net"
+	"github.com/ethanmoffat/eolib-go/v3/protocol/net/client"
 	"github.com/ethanmoffat/eolib-go/v3/protocol/net/server"
 )
 
@@ -13,7 +14,7 @@ func init() {
 	// Jukebox
 	player.Register(eonet.PacketFamily_Jukebox, eonet.PacketAction_Open, handleJukeboxOpen)
 	player.Register(eonet.PacketFamily_Jukebox, eonet.PacketAction_Msg, handleJukeboxMsg)
-	player.Register(eonet.PacketFamily_Jukebox, eonet.PacketAction_Use, handleJukeboxUse)
+
 
 	// Citizen (inn)
 	player.Register(eonet.PacketFamily_Citizen, eonet.PacketAction_Open, handleCitizenNoop)
@@ -54,8 +55,38 @@ func handleJukeboxOpen(ctx context.Context, p *player.Player, _ *player.EoReader
 	return p.Bus.SendPacket(&server.JukeboxOpenServerPacket{MapId: p.MapID})
 }
 
-func handleJukeboxMsg(_ context.Context, _ *player.Player, _ *player.EoReader) error { return nil }
-func handleJukeboxUse(_ context.Context, _ *player.Player, _ *player.EoReader) error { return nil }
+func handleJukeboxMsg(ctx context.Context, p *player.Player, reader *player.EoReader) error {
+	if p.State != player.StateInGame {
+		return nil
+	}
+	var pkt client.JukeboxMsgClientPacket
+	if err := pkt.Deserialize(reader); err != nil {
+		return nil
+	}
+
+	// Validate track ID
+	if pkt.TrackId < 1 || pkt.TrackId > p.Cfg.Jukebox.MaxTrackID {
+		return nil
+	}
+
+	// Deduct gold cost
+	if !p.RemoveItem(1, p.Cfg.Jukebox.Cost) {
+		return nil
+	}
+
+	// Broadcast track to all players on map (1-indexed for server packet)
+	if p.World != nil {
+		p.World.BroadcastMap(p.MapID, -1, &server.JukeboxUseServerPacket{
+			TrackId: pkt.TrackId + 1,
+		})
+	}
+
+	return p.Bus.SendPacket(&server.JukeboxAgreeServerPacket{
+		GoldAmount: p.Inventory[1],
+	})
+}
+
+
 
 // Players list (online users)
 func handlePlayersRequest(ctx context.Context, p *player.Player, _ *player.EoReader) error {

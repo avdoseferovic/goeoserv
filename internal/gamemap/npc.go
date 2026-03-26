@@ -21,8 +21,15 @@ type NpcState struct {
 	HP, MaxHP  int
 	SpawnTicks int // countdown to respawn when dead
 	ActTicks   int // countdown to next action
+	TalkTicks  int // countdown to next talk attempt
 	Alive      bool
-	Opponents  map[int]int // playerID -> damage dealt (O(1) lookup)
+	Opponents  map[int]*NpcOpponent // playerID -> opponent state
+}
+
+// NpcOpponent tracks per-player combat state for an NPC.
+type NpcOpponent struct {
+	DamageDealt int
+	BoredTicks  int // ticks since last hit; removed when >= config.NPCs.BoredTimer
 }
 
 // SpawnNPCs creates NPC instances from the EMF map data.
@@ -226,17 +233,117 @@ func (m *GameMap) TickNPCs(actRate int) {
 		}
 
 		npc.ActTicks++
+		npc.TalkTicks++
 
-		// Random movement
-		if npc.ActTicks >= actRate && len(npc.Opponents) == 0 {
-			npc.ActTicks = 0
-			if rand.IntN(4) == 0 { // 25% chance to move
+		// Determine act rate based on NPC spawn type (speed tier)
+		npcActRate := m.npcSpeedForType(npc.SpawnType)
+		if npcActRate <= 0 {
+			continue // frozen NPC (type 7)
+		}
+
+		if npc.ActTicks < npcActRate {
+			continue
+		}
+		npc.ActTicks = 0
+
+		// Expire bored opponents
+		boredTimer := m.cfg.NPCs.BoredTimer
+		if boredTimer > 0 {
+			for pid, opp := range npc.Opponents {
+				opp.BoredTicks += actRate
+				if opp.BoredTicks >= boredTimer {
+					delete(npc.Opponents, pid)
+				}
+			}
+		}
+
+		if len(npc.Opponents) > 0 {
+			// Chase closest opponent within chase distance
+			m.npcChase(npc)
+		} else {
+			// Random idle movement (25% chance)
+			if rand.IntN(4) == 0 {
 				if moved := m.npcRandomWalk(npc); moved {
 					m.broadcastNpcWalk(npc)
 				}
 			}
 		}
 	}
+}
+
+// npcChase moves an NPC toward its closest opponent within chase distance.
+func (m *GameMap) npcChase(npc *NpcState) {
+	chaseDist := m.cfg.NPCs.ChaseDistance
+	if chaseDist <= 0 {
+		return
+	}
+
+	// Find closest opponent
+	bestDist := chaseDist + 1
+	bestX, bestY := 0, 0
+	for pid := range npc.Opponents {
+		ch, ok := m.players[pid]
+		if !ok {
+			continue
+		}
+		dx := npc.X - ch.X
+		dy := npc.Y - ch.Y
+		if dx < 0 {
+			dx = -dx
+		}
+		if dy < 0 {
+			dy = -dy
+		}
+		dist := max(dx, dy)
+		if dist < bestDist {
+			bestDist = dist
+			bestX = ch.X
+			bestY = ch.Y
+		}
+	}
+
+	if bestDist > chaseDist {
+		return // no opponent in range
+	}
+
+	// Move one tile toward target
+	dir := -1
+	if bestY > npc.Y {
+		dir = 0 // Down
+	} else if bestX < npc.X {
+		dir = 1 // Left
+	} else if bestY < npc.Y {
+		dir = 2 // Up
+	} else if bestX > npc.X {
+		dir = 3 // Right
+	}
+	if dir < 0 {
+		return // already adjacent
+	}
+
+	newX, newY := npc.X, npc.Y
+	switch dir {
+	case 0:
+		newY++
+	case 1:
+		newX--
+	case 2:
+		newY--
+	case 3:
+		newX++
+	}
+
+	if newX < 0 || newY < 0 || newX > m.emf.Width || newY > m.emf.Height {
+		return
+	}
+	if !m.isTileWalkableNpc(newX, newY) || m.isTileOccupied(newX, newY) {
+		return
+	}
+
+	npc.X = newX
+	npc.Y = newY
+	npc.Direction = dir
+	m.broadcastNpcWalk(npc)
 }
 
 func (m *GameMap) npcRandomWalk(npc *NpcState) bool {
@@ -359,11 +466,16 @@ func (m *GameMap) DamageNpc(npcIndex, playerID, damage int) (int, bool, int) {
 		return 0, false, 0
 	}
 
-	// Track opponent with O(1) map lookup
+	// Track opponent with O(1) map lookup; reset bored timer on hit
 	if npc.Opponents == nil {
-		npc.Opponents = make(map[int]int)
+		npc.Opponents = make(map[int]*NpcOpponent)
 	}
-	npc.Opponents[playerID] += damage
+	if opp, ok := npc.Opponents[playerID]; ok {
+		opp.DamageDealt += damage
+		opp.BoredTicks = 0 // reset bored on hit
+	} else {
+		npc.Opponents[playerID] = &NpcOpponent{DamageDealt: damage}
+	}
 
 	npc.HP -= damage
 	if npc.HP <= 0 {
@@ -389,4 +501,28 @@ func (m *GameMap) IsNpcAt(x, y int) int {
 		}
 	}
 	return -1
+}
+
+// npcSpeedForType returns the act rate threshold for a given NPC spawn type.
+func (m *GameMap) npcSpeedForType(spawnType int) int {
+	switch spawnType {
+	case 0:
+		return m.cfg.NPCs.Speed0
+	case 1:
+		return m.cfg.NPCs.Speed1
+	case 2:
+		return m.cfg.NPCs.Speed2
+	case 3:
+		return m.cfg.NPCs.Speed3
+	case 4:
+		return m.cfg.NPCs.Speed4
+	case 5:
+		return m.cfg.NPCs.Speed5
+	case 6:
+		return m.cfg.NPCs.Speed6
+	case 7:
+		return 0 // frozen/static
+	default:
+		return m.cfg.NPCs.Speed0
+	}
 }
