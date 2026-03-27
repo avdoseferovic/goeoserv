@@ -155,7 +155,12 @@ func handleItemUse(ctx context.Context, p *player.Player, reader *player.EoReade
 	case eopub.Item_Heal:
 		hpGain := p.GainHP(item.Hp)
 		tpGain := p.GainTP(item.Tp)
-		if hpGain == 0 && tpGain == 0 {
+		// SP recovery: use Spec1 field for SP amount if > 0
+		spGain := 0
+		if item.Spec1 > 0 {
+			spGain = p.GainSP(item.Spec1)
+		}
+		if hpGain == 0 && tpGain == 0 && spGain == 0 {
 			return nil
 		}
 		reply.ItemTypeData = &server.ItemReplyItemTypeDataHeal{

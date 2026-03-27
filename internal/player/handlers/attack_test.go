@@ -708,6 +708,7 @@ func (w *attackTargetTestWorld) UpdatePlayerVitals(int, int, int, int)      {}
 func (w *attackTargetTestWorld) UpdatePlayerCombatStats(int, int, int, int) {}
 func (w *attackTargetTestWorld) UpdatePlayerCombatSnapshot(int, int, int, int, int, int, int, int) {
 }
+func (w *attackTargetTestWorld) UpdatePlayerSitState(int, int, int)                   {}
 func (w *attackTargetTestWorld) OnlinePlayerCount() int                               { return 0 }
 func (w *attackTargetTestWorld) IsLoggedIn(int) bool                                  { return false }
 func (w *attackTargetTestWorld) AddLoggedInAccount(int)                               {}

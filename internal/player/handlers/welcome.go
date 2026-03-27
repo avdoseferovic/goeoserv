@@ -116,6 +116,7 @@ func handleWelcomeRequest(ctx context.Context, p *player.Player, reader *player.
 	p.CharMaxHP = maxHP
 	p.CharTP = tp
 	p.CharMaxTP = maxTP
+	p.CharSP = 0 // Initialize to 0, will be set by CalculateStats
 	p.CharExp = exp
 	p.Stats = player.CharacterStats{
 		Str: str, Intl: intl, Wis: wis, Agi: agi, Con: con, Cha: cha,
@@ -270,7 +271,7 @@ func loadQuestProgress(ctx context.Context, p *player.Player) error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	type questPayload struct {
 		StateName string         `json:"state_name"`
@@ -366,6 +367,8 @@ func handleWelcomeMsg(ctx context.Context, p *player.Player, reader *player.EoRe
 			MaxHP:     p.CharMaxHP,
 			TP:        p.CharTP,
 			MaxTP:     p.CharMaxTP,
+			SP:        p.CharSP,
+			MaxSP:     p.CharMaxSP,
 			Evade:     p.Evade,
 			Armor:     p.Armor,
 			Equipment: gamemap.EquipmentData{

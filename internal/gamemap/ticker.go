@@ -67,30 +67,44 @@ func (m *GameMap) Tick() {
 
 func (m *GameMap) tickRecovery() {
 	type recoveryUpdate struct {
-		bus    *protocol.PacketBus
-		hp, tp int
+		bus        *protocol.PacketBus
+		hp, tp, sp int
 	}
 
 	m.mu.Lock()
 	updates := make([]recoveryUpdate, 0, len(m.players))
 	for _, ch := range m.players {
 		changed := false
+		// Sitting characters recover faster: divisor 10 instead of 5
+		// SitState: 0 = standing, 1 = chair, 2 = floor
+		divisor := 5
+		if ch.SitState != 0 {
+			divisor = 10
+		}
+
 		if ch.HP < ch.MaxHP {
-			ch.HP += ch.MaxHP / 20 // recover 5% of max HP
+			ch.HP += (ch.MaxHP / divisor) + 1
 			if ch.HP > ch.MaxHP {
 				ch.HP = ch.MaxHP
 			}
 			changed = true
 		}
 		if ch.TP < ch.MaxTP {
-			ch.TP += ch.MaxTP / 20
+			ch.TP += (ch.MaxTP / divisor) + 1
 			if ch.TP > ch.MaxTP {
 				ch.TP = ch.MaxTP
 			}
 			changed = true
 		}
+		if ch.SP < ch.MaxSP {
+			ch.SP += (ch.MaxSP / divisor) + 1
+			if ch.SP > ch.MaxSP {
+				ch.SP = ch.MaxSP
+			}
+			changed = true
+		}
 		if changed {
-			updates = append(updates, recoveryUpdate{bus: ch.Bus, hp: ch.HP, tp: ch.TP})
+			updates = append(updates, recoveryUpdate{bus: ch.Bus, hp: ch.HP, tp: ch.TP, sp: ch.SP})
 		}
 	}
 	m.mu.Unlock()

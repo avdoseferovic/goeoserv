@@ -597,7 +597,7 @@ func loadGuildRanks(ctx context.Context, p *player.Player, guildID int) ([]strin
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var ranks []string
 	for rows.Next() {
 		var rank string
@@ -624,7 +624,7 @@ func loadGuildStaff(ctx context.Context, p *player.Player, guildID int) ([]serve
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var staff []server.GuildStaff
 	for rows.Next() {
 		var rank int

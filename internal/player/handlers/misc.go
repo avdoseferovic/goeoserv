@@ -107,9 +107,6 @@ func handlePlayersRequest(ctx context.Context, p *player.Player, _ *player.EoRea
 	})
 }
 
-// No-op stubs for unimplemented features
-func handleCitizenNoop(_ context.Context, _ *player.Player, _ *player.EoReader) error { return nil }
-
 func handleMessagePing(_ context.Context, p *player.Player, _ *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil

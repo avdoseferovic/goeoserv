@@ -68,7 +68,7 @@ func ping(cfg config.SLN, serverPort string, playerCountFn func() int) {
 		slog.Warn("sln heartbeat failed", "err", err)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		slog.Warn("sln heartbeat non-200", "status", resp.StatusCode)

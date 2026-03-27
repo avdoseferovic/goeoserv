@@ -27,7 +27,10 @@ func handleSitRequest(ctx context.Context, p *player.Player, reader *player.EoRe
 		return nil
 	}
 
-	// Toggle sit/stand
+	// Toggle sit/stand (SitState: 0 = standing, 2 = floor)
+	newSitState := 2 // sitting on floor
+	p.World.UpdatePlayerSitState(p.MapID, p.ID, newSitState)
+
 	p.World.BroadcastMap(p.MapID, p.ID, &server.SitPlayerServerPacket{
 		PlayerId:  p.ID,
 		Coords:    eoproto.Coords{X: p.CharX, Y: p.CharY},
@@ -48,6 +51,10 @@ func handleChairRequest(ctx context.Context, p *player.Player, reader *player.Eo
 		return nil
 	}
 	_ = pkt
+
+	// Sit on chair (SitState: 0 = standing, 1 = chair)
+	newSitState := 1 // sitting on chair
+	p.World.UpdatePlayerSitState(p.MapID, p.ID, newSitState)
 
 	p.World.BroadcastMap(p.MapID, p.ID, &server.SitPlayerServerPacket{
 		PlayerId:  p.ID,

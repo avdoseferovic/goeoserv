@@ -15,7 +15,6 @@ import (
 	"github.com/avdo/goeoserv/internal/db"
 	"github.com/avdo/goeoserv/internal/protocol"
 	eonet "github.com/ethanmoffat/eolib-go/v3/protocol/net"
-	eonetstructs "github.com/ethanmoffat/eolib-go/v3/protocol/net"
 	"github.com/ethanmoffat/eolib-go/v3/protocol/net/server"
 )
 
@@ -59,6 +58,7 @@ type WorldInterface interface {
 	UpdatePlayerVitals(mapID, playerID, hp, tp int)
 	UpdatePlayerCombatStats(mapID, playerID, armor, evade int)
 	UpdatePlayerCombatSnapshot(mapID, playerID, hp, maxHP, tp, maxTP, armor, evade int)
+	UpdatePlayerSitState(mapID, playerID, sitState int)
 	OnlinePlayerCount() int
 	IsLoggedIn(accountID int) bool
 	AddLoggedInAccount(accountID int)
@@ -102,7 +102,7 @@ type Player struct {
 	DB      *db.Database
 	World   WorldInterface
 	conn    *protocol.Conn
-	Version eonetstructs.Version
+	Version eonet.Version
 
 	// Account state
 	AccountID            int
@@ -129,6 +129,7 @@ type Player struct {
 	CharMaxHP     int
 	CharTP        int
 	CharMaxTP     int
+	CharSP        int
 	CharMaxSP     int
 	CharExp       int
 

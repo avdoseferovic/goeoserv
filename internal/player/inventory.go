@@ -70,3 +70,17 @@ func (p *Player) GetSpellLevel(spellID int) int {
 	}
 	return 0
 }
+
+// GainSP restores SP, clamping to max. Returns actual gain.
+func (p *Player) GainSP(amount int) int {
+	if amount <= 0 || p.CharSP >= p.CharMaxSP {
+		return 0
+	}
+	gain := amount
+	p.CharSP += gain
+	if p.CharSP > p.CharMaxSP {
+		gain -= (p.CharSP - p.CharMaxSP)
+		p.CharSP = p.CharMaxSP
+	}
+	return gain
+}

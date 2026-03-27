@@ -27,6 +27,7 @@ type MapCharacter struct {
 	Admin         int
 	HP, MaxHP     int
 	TP, MaxTP     int
+	SP, MaxSP     int
 	Evade         int
 	Armor         int
 	Equipment     EquipmentData
@@ -305,6 +306,15 @@ func (m *GameMap) UpdatePlayerCombatSnapshot(playerID, hp, maxHP, tp, maxTP, arm
 		ch.MaxTP = maxTP
 		ch.Armor = armor
 		ch.Evade = evade
+	}
+}
+
+// UpdatePlayerSitState updates the sitting state for a player on the map.
+func (m *GameMap) UpdatePlayerSitState(playerID, sitState int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if ch, ok := m.players[playerID]; ok {
+		ch.SitState = sitState
 	}
 }
 
