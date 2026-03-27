@@ -126,7 +126,7 @@ func handleAttackUse(ctx context.Context, p *player.Player, reader *player.EoRea
 
 	if killed {
 		p.QuestProgress.RecordNpcKill(enfID)
-		_ = p.SaveCharacter()
+		p.SaveCharacterAsync()
 
 		baseExp := 10
 		if npcRec != nil {

@@ -413,7 +413,7 @@ func castSpellOnNpc(p *player.Player, pkt client.SpellTargetOtherClientPacket, s
 		Damage:          actualDamage,
 	}
 	p.QuestProgress.RecordNpcKill(enfID)
-	_ = p.SaveCharacter()
+	p.SaveCharacterAsync()
 	p.World.BroadcastMap(p.MapID, p.ID, &server.NpcSpecServerPacket{NpcKilledData: killedData})
 	awardNpcExp(p, baseExp, killedData)
 

@@ -42,7 +42,5 @@ func handleConnectionAccept(ctx context.Context, p *player.Player, reader *playe
 }
 
 func handleConnectionPing(ctx context.Context, p *player.Player, _ *player.EoReader) error {
-	// Client responded to our ping (sequence reset handled in player loop)
-	p.Bus.NeedPong = false
 	return nil
 }

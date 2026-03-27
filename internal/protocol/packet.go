@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/ethanmoffat/eolib-go/v3/data"
 	"github.com/ethanmoffat/eolib-go/v3/encrypt"
@@ -21,19 +22,116 @@ var packetBufPool = sync.Pool{
 // PacketBus handles reading/writing EO protocol packets over a connection.
 type PacketBus struct {
 	conn                     *Conn
+	stateMu                  sync.Mutex
 	Sequencer                *Sequencer
 	ServerEncryptionMultiple int
 	ClientEncryptionMultiple int
-	NeedPong                 bool
-	PendingSequenceStart     int  // set when ping is sent, applied when pong is received
-	HasPendingSequence       bool // true if PendingSequenceStart is set
+	needPong                 bool
+	lastPingAt               time.Time
+	pendingSequenceStart     int  // set when ping is sent, applied when pong is received
+	hasPendingSequence       bool // true if pendingSequenceStart is set
 }
+
+type PingStartResult int
+
+const (
+	PingStarted PingStartResult = iota
+	PingAwaitingPong
+	PingTimedOut
+)
 
 func NewPacketBus(conn *Conn) *PacketBus {
 	return &PacketBus{
 		conn:      conn,
 		Sequencer: NewSequencer(),
 	}
+}
+
+// StartPing marks a ping as in-flight and stores its pending sequence start.
+// If a ping is already in flight, it reports whether the caller should keep
+// waiting for the outstanding pong or treat the connection as timed out.
+func (pb *PacketBus) StartPing(now time.Time, timeout time.Duration, sequenceStart int) PingStartResult {
+	pb.stateMu.Lock()
+	defer pb.stateMu.Unlock()
+
+	if pb.needPong {
+		if timeout > 0 && !pb.lastPingAt.IsZero() && now.Sub(pb.lastPingAt) >= timeout {
+			return PingTimedOut
+		}
+
+		return PingAwaitingPong
+	}
+
+	pb.needPong = true
+	pb.lastPingAt = now
+	pb.pendingSequenceStart = sequenceStart
+	pb.hasPendingSequence = true
+	return PingStarted
+}
+
+// CompletePong clears the outstanding ping marker.
+// Used by tests to model ping-loop state transitions directly.
+func (pb *PacketBus) CompletePong() {
+	pb.stateMu.Lock()
+	pb.needPong = false
+	pb.lastPingAt = time.Time{}
+	pb.stateMu.Unlock()
+}
+
+// HasPendingSequence reports whether a ping-driven sequence reset is waiting
+// to be applied. Used by tests.
+func (pb *PacketBus) HasPendingSequence() bool {
+	pb.stateMu.Lock()
+	defer pb.stateMu.Unlock()
+
+	return pb.hasPendingSequence
+}
+
+// ConsumeSequence validates and advances packet sequencing under a single lock
+// so ping-loop updates and receive-loop reads cannot race.
+func (pb *PacketBus) ConsumeSequence(
+	family eonet.PacketFamily,
+	action eonet.PacketAction,
+	clientSequence int,
+	enforceSequence bool,
+) error {
+	pb.stateMu.Lock()
+	defer pb.stateMu.Unlock()
+
+	if family == eonet.PacketFamily_Init {
+		pb.Sequencer.NextSequence()
+		return nil
+	}
+
+	if family == eonet.PacketFamily_Connection && action == eonet.PacketAction_Ping && pb.hasPendingSequence {
+		expectedSequence := pb.Sequencer.PeekNextSequenceWithStart(pb.pendingSequenceStart)
+		if enforceSequence && clientSequence != expectedSequence {
+			return fmt.Errorf("invalid sequence: got=%d expected=%d", clientSequence, expectedSequence)
+		}
+
+		pb.needPong = false
+		pb.lastPingAt = time.Time{}
+		pb.Sequencer.SetStart(pb.pendingSequenceStart)
+		pb.Sequencer.NextSequence()
+		pb.pendingSequenceStart = 0
+		pb.hasPendingSequence = false
+		return nil
+	}
+
+	expectedSequence := pb.Sequencer.NextSequence()
+	if enforceSequence && clientSequence != expectedSequence {
+		return fmt.Errorf("invalid sequence: got=%d expected=%d", clientSequence, expectedSequence)
+	}
+
+	return nil
+}
+
+// CurrentSequenceStart returns the active sequence start under lock.
+func (pb *PacketBus) CurrentSequenceStart() int {
+	pb.stateMu.Lock()
+	defer pb.stateMu.Unlock()
+
+	return pb.Sequencer.Start()
 }
 
 // Send writes a raw packet with the given family/action and payload bytes.

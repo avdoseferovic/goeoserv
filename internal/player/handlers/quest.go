@@ -106,12 +106,12 @@ func handleQuestAccept(ctx context.Context, p *player.Player, reader *player.EoR
 				} else {
 					p.QuestProgress.SetQuestState(pkt.QuestId, "Begin")
 				}
-				_ = p.SaveCharacter()
+				p.SaveCharacterAsync()
 				return nil
 			}
 
 			p.QuestProgress.SetQuestState(pkt.QuestId, nextState)
-			_ = p.SaveCharacter()
+			p.SaveCharacterAsync()
 
 			// Show the next state's dialog
 			newState := q.GetState(nextState)

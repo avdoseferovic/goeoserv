@@ -54,6 +54,6 @@ func handleCaptchaReply(ctx context.Context, p *player.Player, reader *player.Eo
 		return err
 	}
 	_ = p.Bus.SendPacket(&server.RecoverReplyServerPacket{Experience: reward, Karma: 0})
-	_ = p.SaveCharacter()
+	p.SaveCharacterAsync()
 	return nil
 }

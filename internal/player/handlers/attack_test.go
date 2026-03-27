@@ -2,14 +2,17 @@ package handlers
 
 import (
 	"context"
+	"net"
 	"testing"
 	"time"
 
 	"github.com/avdo/goeoserv/internal/config"
 	"github.com/avdo/goeoserv/internal/player"
+	"github.com/avdo/goeoserv/internal/protocol"
 	pubdata "github.com/avdo/goeoserv/internal/pub"
 	"github.com/ethanmoffat/eolib-go/v3/data"
 	eoproto "github.com/ethanmoffat/eolib-go/v3/protocol"
+	eonet "github.com/ethanmoffat/eolib-go/v3/protocol/net"
 	"github.com/ethanmoffat/eolib-go/v3/protocol/net/client"
 	"github.com/ethanmoffat/eolib-go/v3/protocol/net/server"
 	eopub "github.com/ethanmoffat/eolib-go/v3/protocol/pub"
@@ -375,19 +378,74 @@ func TestHandleAttackUseArrowRequiredWeaponWithArrowsEquippedProceeds(t *testing
 	}
 }
 
+func TestHandleAttackUseNpcKillDoesNotDeadlockWhilePlayerMutexHeld(t *testing.T) {
+	stubAttackCombatRolls(t, true)
+
+	world := &attackTargetTestWorld{
+		npcsAt:                map[[3]int]int{{1, 6, 5}: 9},
+		damageNpcResult:       attackNpcDamageResult{actualDamage: 5, killed: true},
+		getPlayerSessionCalls: make(chan int, 1),
+	}
+	attacker := newAttackTestPlayer(world)
+	attacker.QuestProgress.SetQuestState(1, "Begin")
+	bus, packets := newAttackTestPacketBus(t)
+	attacker.Bus = bus
+
+	done := make(chan error, 1)
+	go func() {
+		attacker.Mu.Lock()
+		defer attacker.Mu.Unlock()
+		done <- handleAttackUse(context.Background(), attacker, newAttackUseReader(t, eoproto.Direction_Right))
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("handleAttackUse returned error: %v", err)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("handleAttackUse deadlocked after killing npc")
+	}
+
+	pkt := waitForAttackPacket(t, packets)
+	if pkt.family != eonet.PacketFamily_Npc {
+		t.Fatalf("expected npc packet after kill, got family=%d action=%d", pkt.family, pkt.action)
+	}
+	if pkt.action != eonet.PacketAction_Spec && pkt.action != eonet.PacketAction_Accept {
+		t.Fatalf("expected npc spec/accept packet after kill, got family=%d action=%d", pkt.family, pkt.action)
+	}
+	if world.damageNpcCalls != 1 {
+		t.Fatalf("expected one npc damage call, got %d", world.damageNpcCalls)
+	}
+	if attacker.CharExp == 0 {
+		t.Fatal("expected npc kill to award experience")
+	}
+	questState := attacker.QuestProgress.ActiveQuests[1]
+	if questState == nil || questState.NpcKills[0] != 1 {
+		t.Fatal("expected npc kill progress to be recorded")
+	}
+	if attacker.CharDirection != int(eoproto.Direction_Right) {
+		t.Fatalf("expected attacker direction %d, got %d", eoproto.Direction_Right, attacker.CharDirection)
+	}
+	if len(world.broadcastPackets) == 0 {
+		t.Fatal("expected attack animation broadcast before kill packet")
+	}
+}
+
 func newAttackTestPlayer(world *attackTargetTestWorld) *player.Player {
 	attacker := &player.Player{
-		ID:        1,
-		State:     player.StateInGame,
-		MapID:     1,
-		CharX:     5,
-		CharY:     5,
-		CharHP:    10,
-		World:     world,
-		Cfg:       &config.Config{},
-		MinDamage: 1,
-		MaxDamage: 1,
-		Accuracy:  1,
+		ID:            1,
+		State:         player.StateInGame,
+		MapID:         1,
+		CharX:         5,
+		CharY:         5,
+		CharHP:        10,
+		World:         world,
+		Cfg:           &config.Config{},
+		MinDamage:     1,
+		MaxDamage:     1,
+		Accuracy:      1,
+		QuestProgress: player.NewQuestProgress(),
 	}
 	if world.playerSessions != nil {
 		world.playerSessions[attacker.ID] = attacker
@@ -453,6 +511,7 @@ type attackTargetTestWorld struct {
 	broadcastPackets      []any
 	damageNpcCalls        int
 	lastDamageNpcCall     attackNpcDamageCall
+	damageNpcResult       attackNpcDamageResult
 	getPlayerSessionCalls chan int
 }
 
@@ -461,6 +520,12 @@ type attackNpcDamageCall struct {
 	npcIndex int
 	playerID int
 	damage   int
+}
+
+type attackNpcDamageResult struct {
+	actualDamage int
+	killed       bool
+	hpPct        int
 }
 
 func (w *attackTargetTestWorld) tileKey(mapID, x, y int) [3]int {
@@ -484,7 +549,7 @@ func (w *attackTargetTestWorld) GetNearbyInfo(int) any               { return ni
 func (w *attackTargetTestWorld) DamageNpc(mapID, npcIndex, playerID, damage int) (int, bool, int) {
 	w.damageNpcCalls++
 	w.lastDamageNpcCall = attackNpcDamageCall{mapID: mapID, npcIndex: npcIndex, playerID: playerID, damage: damage}
-	return 0, false, 0
+	return w.damageNpcResult.actualDamage, w.damageNpcResult.killed, w.damageNpcResult.hpPct
 }
 func (w *attackTargetTestWorld) GetNpcHpPercentage(int, int) int           { return 0 }
 func (w *attackTargetTestWorld) DropItem(int, int, int, int, int, int) int { return 0 }
@@ -569,4 +634,56 @@ func (w *attackTargetTestWorld) CanPlayerAttackPlayer(mapID, attackerID, targetI
 	}
 
 	return w.attackablePairs[[3]int{mapID, attackerID, targetID}]
+}
+
+type attackTestPacket struct {
+	action  eonet.PacketAction
+	family  eonet.PacketFamily
+	payload []byte
+}
+
+func newAttackTestPacketBus(t *testing.T) (*protocol.PacketBus, <-chan attackTestPacket) {
+	t.Helper()
+
+	clientConn, serverConn := net.Pipe()
+	bus := protocol.NewPacketBus(protocol.NewTCPConn(clientConn))
+	receiverConn := protocol.NewTCPConn(serverConn)
+	packets := make(chan attackTestPacket, 4)
+
+	go func() {
+		defer close(packets)
+		for {
+			rawPacket, err := receiverConn.ReadPacket()
+			if err != nil {
+				return
+			}
+			packets <- attackTestPacket{
+				action:  eonet.PacketAction(rawPacket[0]),
+				family:  eonet.PacketFamily(rawPacket[1]),
+				payload: append([]byte(nil), rawPacket[2:]...),
+			}
+		}
+	}()
+
+	t.Cleanup(func() {
+		_ = clientConn.Close()
+		_ = serverConn.Close()
+	})
+
+	return bus, packets
+}
+
+func waitForAttackPacket(t *testing.T, packets <-chan attackTestPacket) attackTestPacket {
+	t.Helper()
+
+	select {
+	case pkt, ok := <-packets:
+		if !ok {
+			t.Fatal("expected packet from attack handler bus")
+		}
+		return pkt
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("timed out waiting for attack handler packet")
+		return attackTestPacket{}
+	}
 }

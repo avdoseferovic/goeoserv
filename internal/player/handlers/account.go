@@ -60,7 +60,7 @@ func handleAccountRequest(ctx context.Context, p *player.Player, reader *player.
 	return p.Bus.SendPacket(&server.AccountReplyServerPacket{
 		ReplyCode: server.AccountReply(sessionID),
 		ReplyCodeData: &server.AccountReplyReplyCodeDataDefault{
-			SequenceStart: p.Bus.Sequencer.Start(),
+			SequenceStart: p.Bus.CurrentSequenceStart(),
 		},
 	})
 }

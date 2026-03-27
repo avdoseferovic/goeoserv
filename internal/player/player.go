@@ -298,6 +298,17 @@ func (p *Player) Die() {
 	})
 }
 
+// SaveCharacterAsync persists the current character state after the active
+// handler releases the player mutex. Handlers run while Mu is held, so calling
+// SaveCharacter directly from a handler would deadlock.
+func (p *Player) SaveCharacterAsync() {
+	go func() {
+		if err := p.SaveCharacter(); err != nil {
+			slog.Error("failed to save character", "id", p.ID, "err", err)
+		}
+	}()
+}
+
 // SaveCharacter persists the current character state to the database.
 // It saves position, stats, and inventory in a single transaction.
 // Uses context.Background() since this may be called during disconnect/save loops.

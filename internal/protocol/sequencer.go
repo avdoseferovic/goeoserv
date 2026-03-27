@@ -26,6 +26,17 @@ func (s *Sequencer) NextSequence() int {
 	return result
 }
 
+// PeekNextSequence returns the next sequence without advancing the counter.
+func (s *Sequencer) PeekNextSequence() int {
+	return s.start + s.counter
+}
+
+// PeekNextSequenceWithStart returns the next sequence for the provided start
+// without mutating the current sequencer state.
+func (s *Sequencer) PeekNextSequenceWithStart(start int) int {
+	return start + s.counter
+}
+
 // SetStart sets the sequence start value.
 // Note: does NOT reset the counter (matches eolib behavior).
 func (s *Sequencer) SetStart(start int) {

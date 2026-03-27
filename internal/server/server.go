@@ -224,7 +224,8 @@ func (s *Server) RunPingLoop(ctx context.Context) {
 	if s.cfg.Server.PingRate <= 0 {
 		return
 	}
-	ticker := time.NewTicker(time.Duration(s.cfg.Server.PingRate) * time.Second)
+	pingInterval := time.Duration(s.cfg.Server.PingRate) * time.Second
+	ticker := time.NewTicker(pingInterval)
 	defer ticker.Stop()
 
 	for {
@@ -236,33 +237,33 @@ func (s *Server) RunPingLoop(ctx context.Context) {
 			// to avoid blocking all player operations during network I/O.
 			s.mu.Lock()
 			type pingTarget struct {
-				player   *player.Player
-				id       int
-				timedOut bool
+				player *player.Player
+				id     int
 			}
 			targets := make([]pingTarget, 0, len(s.players))
 			for id, p := range s.players {
-				if p.Bus.NeedPong {
-					targets = append(targets, pingTarget{player: p, id: id, timedOut: true})
-				} else {
-					p.Bus.NeedPong = true
-					targets = append(targets, pingTarget{player: p, id: id})
-				}
+				targets = append(targets, pingTarget{player: p, id: id})
 			}
 			s.mu.Unlock()
 
 			for _, t := range targets {
-				if t.timedOut {
+				now := time.Now()
+				seq1, seq2, seqStart := protocol.GeneratePingSequenceBytes()
+				switch t.player.Bus.StartPing(now, pingInterval, seqStart) {
+				case protocol.PingTimedOut:
 					slog.Info("player timed out (no pong)", "id", t.id)
 					t.player.Close()
-				} else {
-					seq1, seq2, seqStart := protocol.GeneratePingSequenceBytes()
-					t.player.Bus.PendingSequenceStart = seqStart
-					t.player.Bus.HasPendingSequence = true
-					_ = t.player.Bus.SendPacket(&server.ConnectionPlayerServerPacket{
-						Seq1: seq1,
-						Seq2: seq2,
-					})
+					continue
+				case protocol.PingAwaitingPong:
+					continue
+				}
+
+				if err := t.player.Bus.SendPacket(&server.ConnectionPlayerServerPacket{
+					Seq1: seq1,
+					Seq2: seq2,
+				}); err != nil {
+					slog.Debug("player ping send failed", "id", t.id, "err", err)
+					t.player.Close()
 				}
 			}
 		}
