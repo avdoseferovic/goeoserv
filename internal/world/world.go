@@ -670,6 +670,22 @@ func (w *World) UpdatePlayerVitals(mapID, playerID, hp, tp int) {
 	m.UpdatePlayerVitals(playerID, hp, tp)
 }
 
+func (w *World) UpdatePlayerCombatStats(mapID, playerID, armor, evade int) {
+	m := w.getMap(mapID)
+	if m == nil {
+		return
+	}
+	m.UpdatePlayerCombatStats(playerID, armor, evade)
+}
+
+func (w *World) UpdatePlayerCombatSnapshot(mapID, playerID, hp, maxHP, tp, maxTP, armor, evade int) {
+	m := w.getMap(mapID)
+	if m == nil {
+		return
+	}
+	m.UpdatePlayerCombatSnapshot(playerID, hp, maxHP, tp, maxTP, armor, evade)
+}
+
 // OnlinePlayerCount returns the total number of players across all maps.
 func (w *World) OnlinePlayerCount() int {
 	w.playerMu.RLock()

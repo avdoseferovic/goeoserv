@@ -432,6 +432,120 @@ func TestHandleAttackUseNpcKillDoesNotDeadlockWhilePlayerMutexHeld(t *testing.T)
 	}
 }
 
+func TestHandleAttackUseNpcMissUsesNpcEvadeAndSendsMissPacket(t *testing.T) {
+	setAttackTestNpcDB(t, map[int]eopub.EnfRecord{1: {Evade: 7}})
+
+	world := &attackTargetTestWorld{
+		npcsAt:          map[[3]int]int{{1, 6, 5}: 9},
+		npcEnfIDByIndex: map[int]int{9: 1},
+		npcHpPercentage: 63,
+		playerSessions:  map[int]*player.Player{},
+	}
+	attacker := newAttackTestPlayer(world)
+	b, packets := newAttackTestPacketBus(t)
+	attacker.Bus = b
+	attacker.Accuracy = 11
+
+	prevHitRoll := combatHitRoll
+	t.Cleanup(func() { combatHitRoll = prevHitRoll })
+	observedAccuracy := 0
+	observedEvade := 0
+	combatHitRoll = func(accuracy, evade int) bool {
+		observedAccuracy = accuracy
+		observedEvade = evade
+		return false
+	}
+
+	err := handleAttackUse(context.Background(), attacker, newAttackUseReader(t, eoproto.Direction_Right))
+	if err != nil {
+		t.Fatalf("handleAttackUse returned error: %v", err)
+	}
+
+	if observedAccuracy != 11 || observedEvade != 7 {
+		t.Fatalf("expected hit roll inputs (11,7), got (%d,%d)", observedAccuracy, observedEvade)
+	}
+	if world.damageNpcCalls != 0 {
+		t.Fatalf("expected npc miss to skip damage call, got %d", world.damageNpcCalls)
+	}
+
+	pkt := waitForAttackPacket(t, packets)
+	wantReplyPacket := server.NpcReplyServerPacket{}
+	if pkt.action != wantReplyPacket.Action() || pkt.family != wantReplyPacket.Family() {
+		t.Fatalf("expected npc reply packet, got family=%d action=%d", pkt.family, pkt.action)
+	}
+
+	var reply server.NpcReplyServerPacket
+	if err := reply.Deserialize(data.NewEoReader(pkt.payload)); err != nil {
+		t.Fatalf("deserialize npc miss reply: %v", err)
+	}
+	if reply.NpcIndex != 9 || reply.Damage != 0 || reply.HpPercentage != 63 {
+		t.Fatalf("unexpected miss reply: %+v", reply)
+	}
+}
+
+func TestHandleAttackUseNpcHitUsesNpcArmorInDamageRoll(t *testing.T) {
+	setAttackTestNpcDB(t, map[int]eopub.EnfRecord{1: {Armor: 9}})
+
+	world := &attackTargetTestWorld{
+		npcsAt:          map[[3]int]int{{1, 6, 5}: 9},
+		npcEnfIDByIndex: map[int]int{9: 1},
+		damageNpcResult: attackNpcDamageResult{actualDamage: 4, hpPct: 55},
+		playerSessions:  map[int]*player.Player{},
+	}
+	attacker := newAttackTestPlayer(world)
+	b, packets := newAttackTestPacketBus(t)
+	attacker.Bus = b
+	attacker.MinDamage = 3
+	attacker.MaxDamage = 8
+
+	prevHitRoll := combatHitRoll
+	prevDamageRoll := combatDamageRoll
+	t.Cleanup(func() {
+		combatHitRoll = prevHitRoll
+		combatDamageRoll = prevDamageRoll
+	})
+
+	observedMin := 0
+	observedMax := 0
+	observedArmor := 0
+	combatHitRoll = func(int, int) bool { return true }
+	combatDamageRoll = func(minDamage, maxDamage, armor int) int {
+		observedMin = minDamage
+		observedMax = maxDamage
+		observedArmor = armor
+		return 4
+	}
+
+	err := handleAttackUse(context.Background(), attacker, newAttackUseReader(t, eoproto.Direction_Right))
+	if err != nil {
+		t.Fatalf("handleAttackUse returned error: %v", err)
+	}
+
+	if observedMin != 3 || observedMax != 8 || observedArmor != 9 {
+		t.Fatalf("expected damage roll inputs (3,8,9), got (%d,%d,%d)", observedMin, observedMax, observedArmor)
+	}
+	if world.damageNpcCalls != 1 {
+		t.Fatalf("expected one npc damage call, got %d", world.damageNpcCalls)
+	}
+	if world.lastDamageNpcCall.damage != 4 {
+		t.Fatalf("expected armor-aware damage roll 4, got %d", world.lastDamageNpcCall.damage)
+	}
+
+	pkt := waitForAttackPacket(t, packets)
+	wantReplyPacket := server.NpcReplyServerPacket{}
+	if pkt.action != wantReplyPacket.Action() || pkt.family != wantReplyPacket.Family() {
+		t.Fatalf("expected npc reply packet, got family=%d action=%d", pkt.family, pkt.action)
+	}
+
+	var reply server.NpcReplyServerPacket
+	if err := reply.Deserialize(data.NewEoReader(pkt.payload)); err != nil {
+		t.Fatalf("deserialize npc hit reply: %v", err)
+	}
+	if reply.Damage != 4 || reply.HpPercentage != 55 {
+		t.Fatalf("unexpected npc hit reply: %+v", reply)
+	}
+}
+
 func newAttackTestPlayer(world *attackTargetTestWorld) *player.Player {
 	attacker := &player.Player{
 		ID:            1,
@@ -487,6 +601,28 @@ func setAttackTestItemDB(t *testing.T, subtypes map[int]eopub.ItemSubtype) {
 	pubdata.ItemDB = itemDB
 }
 
+func setAttackTestNpcDB(t *testing.T, npcs map[int]eopub.EnfRecord) {
+	t.Helper()
+
+	prev := pubdata.NpcDB
+	t.Cleanup(func() {
+		pubdata.NpcDB = prev
+	})
+
+	maxID := 0
+	for npcID := range npcs {
+		if npcID > maxID {
+			maxID = npcID
+		}
+	}
+
+	npcDB := &eopub.Enf{Npcs: make([]eopub.EnfRecord, maxID)}
+	for npcID, record := range npcs {
+		npcDB.Npcs[npcID-1] = record
+	}
+	pubdata.NpcDB = npcDB
+}
+
 func stubAttackCombatRolls(t *testing.T, hit bool) {
 	t.Helper()
 
@@ -508,6 +644,8 @@ type attackTargetTestWorld struct {
 	attackablePairs       map[[3]int]bool
 	captchas              map[int]bool
 	playerSessions        map[int]*player.Player
+	npcEnfIDByIndex       map[int]int
+	npcHpPercentage       int
 	broadcastPackets      []any
 	damageNpcCalls        int
 	lastDamageNpcCall     attackNpcDamageCall
@@ -551,7 +689,7 @@ func (w *attackTargetTestWorld) DamageNpc(mapID, npcIndex, playerID, damage int)
 	w.lastDamageNpcCall = attackNpcDamageCall{mapID: mapID, npcIndex: npcIndex, playerID: playerID, damage: damage}
 	return w.damageNpcResult.actualDamage, w.damageNpcResult.killed, w.damageNpcResult.hpPct
 }
-func (w *attackTargetTestWorld) GetNpcHpPercentage(int, int) int           { return 0 }
+func (w *attackTargetTestWorld) GetNpcHpPercentage(int, int) int           { return w.npcHpPercentage }
 func (w *attackTargetTestWorld) DropItem(int, int, int, int, int, int) int { return 0 }
 func (w *attackTargetTestWorld) PickupItem(int, int, int) (int, int, bool) { return 0, 0, false }
 func (w *attackTargetTestWorld) GetPlayerBus(int) any                      { return nil }
@@ -564,9 +702,12 @@ func (w *attackTargetTestWorld) GetPlayerSession(playerID int) *player.Player {
 	}
 	return w.playerSessions[playerID]
 }
-func (w *attackTargetTestWorld) IsPkMap(int) bool                                     { return false }
-func (w *attackTargetTestWorld) HandlePlayerDefeat(int, int, int, int) bool           { return false }
-func (w *attackTargetTestWorld) UpdatePlayerVitals(int, int, int, int)                {}
+func (w *attackTargetTestWorld) IsPkMap(int) bool                           { return false }
+func (w *attackTargetTestWorld) HandlePlayerDefeat(int, int, int, int) bool { return false }
+func (w *attackTargetTestWorld) UpdatePlayerVitals(int, int, int, int)      {}
+func (w *attackTargetTestWorld) UpdatePlayerCombatStats(int, int, int, int) {}
+func (w *attackTargetTestWorld) UpdatePlayerCombatSnapshot(int, int, int, int, int, int, int, int) {
+}
 func (w *attackTargetTestWorld) OnlinePlayerCount() int                               { return 0 }
 func (w *attackTargetTestWorld) IsLoggedIn(int) bool                                  { return false }
 func (w *attackTargetTestWorld) AddLoggedInAccount(int)                               {}
@@ -579,21 +720,26 @@ func (w *attackTargetTestWorld) GetPlayerPosition(int) any                      
 func (w *attackTargetTestWorld) UpdateMapEquipment(int, int, int, int, int, int, int) {}
 func (w *attackTargetTestWorld) BroadcastToGuild(int, string, any)                    {}
 func (w *attackTargetTestWorld) BroadcastToParty(int, any)                            {}
-func (w *attackTargetTestWorld) GetNpcEnfID(int, int) int                             { return 0 }
-func (w *attackTargetTestWorld) OpenDoor(int, int, int, int) bool                     { return false }
-func (w *attackTargetTestWorld) SetMutedUntil(int, time.Time)                         {}
-func (w *attackTargetTestWorld) ClearMuted(int)                                       {}
-func (w *attackTargetTestWorld) GetMutedUntil(int) (time.Time, bool)                  { return time.Time{}, false }
-func (w *attackTargetTestWorld) IsMuted(int) bool                                     { return false }
-func (w *attackTargetTestWorld) StartCaptcha(int, int) bool                           { return false }
-func (w *attackTargetTestWorld) RefreshCaptcha(int) bool                              { return false }
-func (w *attackTargetTestWorld) VerifyCaptcha(int, string) (int, bool)                { return 0, false }
-func (w *attackTargetTestWorld) HasCaptcha(playerID int) bool                         { return w.captchas[playerID] }
-func (w *attackTargetTestWorld) GetChestItems(int, int, int) any                      { return nil }
-func (w *attackTargetTestWorld) AddChestItem(int, int, int, int, int) any             { return nil }
-func (w *attackTargetTestWorld) TakeChestItem(int, int, int, int) (int, any)          { return 0, nil }
-func (w *attackTargetTestWorld) StartEvacuate(int, int)                               {}
-func (w *attackTargetTestWorld) TryStartJukebox(int, int) bool                        { return false }
+func (w *attackTargetTestWorld) GetNpcEnfID(_ int, npcIndex int) int {
+	if w.npcEnfIDByIndex == nil {
+		return 0
+	}
+	return w.npcEnfIDByIndex[npcIndex]
+}
+func (w *attackTargetTestWorld) OpenDoor(int, int, int, int) bool            { return false }
+func (w *attackTargetTestWorld) SetMutedUntil(int, time.Time)                {}
+func (w *attackTargetTestWorld) ClearMuted(int)                              {}
+func (w *attackTargetTestWorld) GetMutedUntil(int) (time.Time, bool)         { return time.Time{}, false }
+func (w *attackTargetTestWorld) IsMuted(int) bool                            { return false }
+func (w *attackTargetTestWorld) StartCaptcha(int, int) bool                  { return false }
+func (w *attackTargetTestWorld) RefreshCaptcha(int) bool                     { return false }
+func (w *attackTargetTestWorld) VerifyCaptcha(int, string) (int, bool)       { return 0, false }
+func (w *attackTargetTestWorld) HasCaptcha(playerID int) bool                { return w.captchas[playerID] }
+func (w *attackTargetTestWorld) GetChestItems(int, int, int) any             { return nil }
+func (w *attackTargetTestWorld) AddChestItem(int, int, int, int, int) any    { return nil }
+func (w *attackTargetTestWorld) TakeChestItem(int, int, int, int) (int, any) { return 0, nil }
+func (w *attackTargetTestWorld) StartEvacuate(int, int)                      {}
+func (w *attackTargetTestWorld) TryStartJukebox(int, int) bool               { return false }
 
 func (w *attackTargetTestWorld) GetNpcAt(mapID, x, y int) int {
 	if npcIndex, ok := w.npcsAt[w.tileKey(mapID, x, y)]; ok {

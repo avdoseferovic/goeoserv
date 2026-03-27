@@ -1,6 +1,7 @@
 package gamemap
 
 import (
+	"math"
 	"math/rand/v2"
 
 	pubdata "github.com/avdo/goeoserv/internal/pub"
@@ -361,18 +362,22 @@ func (m *GameMap) npcAttackLocked(npc *NpcState, target *MapCharacter) (server.N
 		return server.NpcUpdateAttack{}, false
 	}
 
-	damage := npcDamageAmount(npc.ID)
-	if damage <= 0 {
-		return server.NpcUpdateAttack{}, false
+	npcAccuracy := 0
+	if npcRec := pubdata.GetNpc(npc.ID); npcRec != nil {
+		npcAccuracy = npcRec.Accuracy
 	}
 
-	if damage > target.HP {
-		damage = target.HP
-	}
+	damage := 0
+	if npcCombatHitRoll(npcAccuracy, target.Evade) {
+		damage = reduceNpcDamageByArmor(npcDamageAmount(npc.ID), target.Armor)
+		if damage > target.HP {
+			damage = target.HP
+		}
 
-	target.HP -= damage
-	if target.HP < 0 {
-		target.HP = 0
+		target.HP -= damage
+		if target.HP < 0 {
+			target.HP = 0
+		}
 	}
 
 	killed := server.PlayerKilledState_Alive
@@ -613,6 +618,36 @@ func npcDamageAmount(npcID int) int {
 	damage := npcRec.MinDamage
 	if npcRec.MaxDamage > npcRec.MinDamage {
 		damage += rand.IntN(npcRec.MaxDamage - npcRec.MinDamage + 1)
+	}
+	if damage < 1 {
+		return 1
+	}
+	return damage
+}
+
+func npcCombatHitRoll(accuracy, evade int) bool {
+	return rand.Float64() <= npcCombatHitRate(accuracy, evade)
+}
+
+func npcCombatHitRate(accuracy, evade int) float64 {
+	hitRate := 0.5
+	if accuracy+evade > 0 {
+		if evade > 0 {
+			hitRate = float64(accuracy) / float64(evade*2)
+		} else {
+			hitRate = 0.8
+		}
+	}
+	return max(0.5, min(0.8, hitRate))
+}
+
+func reduceNpcDamageByArmor(damage, armor int) int {
+	if damage < 1 {
+		return 1
+	}
+	if armor > 0 && damage < armor*2 {
+		reduced := float64(damage) * math.Pow(float64(damage)/float64(armor*2), 2)
+		damage = int(reduced)
 	}
 	if damage < 1 {
 		return 1

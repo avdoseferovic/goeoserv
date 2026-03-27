@@ -57,6 +57,8 @@ type WorldInterface interface {
 	CanPlayerAttackPlayer(mapID, attackerID, targetID int) bool
 	HandlePlayerDefeat(mapID, attackerID, targetID, direction int) bool
 	UpdatePlayerVitals(mapID, playerID, hp, tp int)
+	UpdatePlayerCombatStats(mapID, playerID, armor, evade int)
+	UpdatePlayerCombatSnapshot(mapID, playerID, hp, maxHP, tp, maxTP, armor, evade int)
 	OnlinePlayerCount() int
 	IsLoggedIn(accountID int) bool
 	AddLoggedInAccount(accountID int)

@@ -287,6 +287,11 @@ func (w *spellTargetTestWorld) UpdatePlayerVitals(mapID, playerID, hp, tp int) {
 	w.updatePlayerVitalsCalls = append(w.updatePlayerVitalsCalls, spellVitalsUpdateCall{mapID: mapID, playerID: playerID, hp: hp, tp: tp})
 }
 
+func (w *spellTargetTestWorld) UpdatePlayerCombatStats(mapID, playerID, armor, evade int) {}
+
+func (w *spellTargetTestWorld) UpdatePlayerCombatSnapshot(mapID, playerID, hp, maxHP, tp, maxTP, armor, evade int) {
+}
+
 type spellTestPacket struct {
 	action  eonet.PacketAction
 	family  eonet.PacketFamily

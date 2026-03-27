@@ -27,6 +27,8 @@ type MapCharacter struct {
 	Admin         int
 	HP, MaxHP     int
 	TP, MaxTP     int
+	Evade         int
+	Armor         int
 	Equipment     EquipmentData
 	Bus           *protocol.PacketBus
 	SitState      int // 0 = standing, 1 = chair, 2 = floor
@@ -279,6 +281,30 @@ func (m *GameMap) UpdatePlayerVitals(playerID, hp, tp int) {
 	if ch, ok := m.players[playerID]; ok {
 		ch.HP = hp
 		ch.TP = tp
+	}
+}
+
+// UpdatePlayerCombatStats updates the tracked combat stats for a player on the map.
+func (m *GameMap) UpdatePlayerCombatStats(playerID, armor, evade int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if ch, ok := m.players[playerID]; ok {
+		ch.Armor = armor
+		ch.Evade = evade
+	}
+}
+
+// UpdatePlayerCombatSnapshot updates the tracked vitals and combat stats for a player on the map.
+func (m *GameMap) UpdatePlayerCombatSnapshot(playerID, hp, maxHP, tp, maxTP, armor, evade int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if ch, ok := m.players[playerID]; ok {
+		ch.HP = hp
+		ch.MaxHP = maxHP
+		ch.TP = tp
+		ch.MaxTP = maxTP
+		ch.Armor = armor
+		ch.Evade = evade
 	}
 }
 

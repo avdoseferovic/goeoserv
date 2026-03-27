@@ -366,6 +366,8 @@ func handleWelcomeMsg(ctx context.Context, p *player.Player, reader *player.EoRe
 			MaxHP:     p.CharMaxHP,
 			TP:        p.CharTP,
 			MaxTP:     p.CharMaxTP,
+			Evade:     p.Evade,
+			Armor:     p.Armor,
 			Equipment: gamemap.EquipmentData{
 				Boots:  pubdata.ItemGraphicID(p.Equipment.Boots),
 				Armor:  pubdata.ItemGraphicID(p.Equipment.Armor),

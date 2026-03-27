@@ -293,4 +293,17 @@ func (p *Player) CalculateStats() {
 	if p.CharTP > p.CharMaxTP {
 		p.CharTP = p.CharMaxTP
 	}
+
+	if p.World != nil && p.MapID > 0 {
+		p.World.UpdatePlayerCombatSnapshot(
+			p.MapID,
+			p.ID,
+			p.CharHP,
+			p.CharMaxHP,
+			p.CharTP,
+			p.CharMaxTP,
+			p.Armor,
+			p.Evade,
+		)
+	}
 }
