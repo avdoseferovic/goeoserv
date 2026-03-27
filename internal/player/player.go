@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -14,6 +15,8 @@ import (
 	"github.com/avdo/goeoserv/internal/db"
 	"github.com/avdo/goeoserv/internal/protocol"
 	eonet "github.com/ethanmoffat/eolib-go/v3/protocol/net"
+	eonetstructs "github.com/ethanmoffat/eolib-go/v3/protocol/net"
+	"github.com/ethanmoffat/eolib-go/v3/protocol/net/server"
 )
 
 // ClientState tracks the player's connection state.
@@ -31,6 +34,7 @@ const (
 // WorldInterface allows the player to interact with the world without import cycles.
 type WorldInterface interface {
 	EnterMap(mapID int, charInfo any)
+	BindPlayerSession(playerID int, session *Player)
 	LeaveMap(mapID, playerID int)
 	Walk(mapID, playerID int, direction int, coords [2]int)
 	Face(mapID, playerID int, direction int)
@@ -41,10 +45,18 @@ type WorldInterface interface {
 	FindPlayerByName(name string) (playerID int, found bool)
 	GetNearbyInfo(mapID int) any
 	DamageNpc(mapID, npcIndex, playerID, damage int) (actualDmg int, killed bool, hpPct int)
+	GetNpcHpPercentage(mapID, npcIndex int) int
 	GetNpcAt(mapID, x, y int) int // returns npc index or -1
 	DropItem(mapID, itemID, amount, x, y, droppedBy int) int
 	PickupItem(mapID, uid, playerID int) (itemID, amount int, ok bool)
 	GetPlayerBus(playerID int) any
+	GetPlayerSession(playerID int) *Player
+	GetPlayerAt(mapID, x, y int) int
+	IsAttackTileBlocked(mapID, x, y int) bool
+	IsPkMap(mapID int) bool
+	CanPlayerAttackPlayer(mapID, attackerID, targetID int) bool
+	HandlePlayerDefeat(mapID, attackerID, targetID, direction int) bool
+	UpdatePlayerVitals(mapID, playerID, hp, tp int)
 	OnlinePlayerCount() int
 	IsLoggedIn(accountID int) bool
 	AddLoggedInAccount(accountID int)
@@ -58,10 +70,20 @@ type WorldInterface interface {
 	BroadcastToGuild(excludePlayerID int, guildTag string, pkt any)
 	BroadcastToParty(playerID int, pkt any)
 	GetNpcEnfID(mapID, npcIndex int) int
+	OpenDoor(mapID, playerID, x, y int) bool
+	SetMutedUntil(playerID int, until time.Time)
+	ClearMuted(playerID int)
+	GetMutedUntil(playerID int) (until time.Time, ok bool)
+	IsMuted(playerID int) bool
+	StartCaptcha(playerID int, reward int) bool
+	RefreshCaptcha(playerID int) bool
+	VerifyCaptcha(playerID int, value string) (reward int, solved bool)
+	HasCaptcha(playerID int) bool
 	GetChestItems(mapID, x, y int) any
 	AddChestItem(mapID, x, y, itemID, amount int) any
 	TakeChestItem(mapID, x, y, itemID int) (amount int, items any)
 	StartEvacuate(mapID, ticks int)
+	TryStartJukebox(mapID, trackID int) bool
 }
 
 type Player struct {
@@ -70,19 +92,24 @@ type Player struct {
 	// between the handler goroutine and the save/ping loops.
 	Mu sync.Mutex
 
-	ID    int
-	IP    string
-	State ClientState
-	Bus   *protocol.PacketBus
-	Cfg   *config.Config
-	DB    *db.Database
-	World WorldInterface
-	conn  *protocol.Conn
+	ID      int
+	IP      string
+	State   ClientState
+	Bus     *protocol.PacketBus
+	Cfg     *config.Config
+	DB      *db.Database
+	World   WorldInterface
+	conn    *protocol.Conn
+	Version eonetstructs.Version
 
 	// Account state
-	AccountID     int
-	LoginAttempts int
-	SessionID     *int
+	AccountID            int
+	LoginAttempts        int
+	SessionID            *int
+	AccountSessionToken  string
+	EmailPin             string
+	RecoveryAccountName  string
+	RecoveryPinExpiresAt time.Time
 
 	// Character state
 	CharacterID   *int
@@ -111,6 +138,8 @@ type Player struct {
 	StatPoints    int
 	SkillPoints   int
 	Spells        []SpellState
+	PendingSpell  *SpellCastState
+	LastSpellCast int
 	QuestProgress *QuestProgressTracker
 	Equipment     Equipment
 	ClassID       int
@@ -211,26 +240,9 @@ func (p *Player) Run(ctx context.Context) {
 
 		// After init, all packets have a sequence byte before the payload
 		if p.State != StateUninitialized {
-			if family != eonet.PacketFamily_Init {
-				// Apply pending sequence reset on pong (before validation)
-				if family == eonet.PacketFamily_Connection && action == eonet.PacketAction_Ping {
-					if p.Bus.HasPendingSequence {
-						p.Bus.Sequencer.SetStart(p.Bus.PendingSequenceStart)
-						p.Bus.HasPendingSequence = false
-					}
-				}
-
-				clientSeq := reader.GetChar()
-				expectedSeq := p.Bus.Sequencer.NextSequence()
-
-				if p.Cfg.Server.EnforceSequence && clientSeq != expectedSeq {
-					slog.Warn("invalid sequence",
-						"id", p.ID, "got", clientSeq, "expected", expectedSeq)
-					return
-				}
-			} else {
-				// Init packets still consume a sequence slot
-				p.Bus.Sequencer.NextSequence()
+			if err := consumePacketSequence(p.Bus, family, action, reader, p.Cfg.Server.EnforceSequence); err != nil {
+				slog.Warn("invalid sequence", "id", p.ID, "err", err)
+				return
 			}
 		}
 
@@ -256,15 +268,16 @@ func (p *Player) Close() {
 	_ = p.conn.Close()
 }
 
-// Die handles player death — warp to spawn/rescue point.
+// Die handles player death by restoring HP and requesting a rescue warp.
 func (p *Player) Die() {
 	if p.World == nil {
 		return
 	}
 
-	p.CharHP = p.CharMaxHP // revive at full HP
+	if p.CharMaxHP > 0 {
+		p.CharHP = p.CharMaxHP
+	}
 
-	// Determine spawn location
 	spawnMap := p.Cfg.Rescue.Map
 	spawnX := p.Cfg.Rescue.X
 	spawnY := p.Cfg.Rescue.Y
@@ -275,11 +288,14 @@ func (p *Player) Die() {
 		spawnY = p.Cfg.NewCharacter.SpawnY
 	}
 
-	// Warp to spawn
-	p.World.WarpPlayer(p.ID, p.MapID, spawnMap, spawnX, spawnY)
-	p.MapID = spawnMap
-	p.CharX = spawnX
-	p.CharY = spawnY
+	p.PendingWarp = &PendingWarp{MapID: spawnMap, X: spawnX, Y: spawnY}
+	p.World.UpdatePlayerVitals(p.MapID, p.ID, p.CharHP, p.CharTP)
+	_ = p.Bus.SendPacket(&server.RecoverPlayerServerPacket{Hp: p.CharHP, Tp: p.CharTP})
+	_ = p.Bus.SendPacket(&server.WarpRequestServerPacket{
+		WarpType:     server.Warp_Local,
+		MapId:        spawnMap,
+		WarpTypeData: &server.WarpRequestWarpTypeDataMapSwitch{},
+	})
 }
 
 // SaveCharacter persists the current character state to the database.
@@ -308,6 +324,7 @@ func (p *Player) SaveCharacter() error {
 		`UPDATE characters SET
 			map = ?, x = ?, y = ?, direction = ?,
 			level = ?, experience = ?, hp = ?, tp = ?,
+			class = ?, race = ?,
 			strength = ?, intelligence = ?, wisdom = ?,
 			agility = ?, constitution = ?, charisma = ?,
 			stat_points = ?, skill_points = ?,
@@ -319,6 +336,7 @@ func (p *Player) SaveCharacter() error {
 		WHERE id = ?`,
 		p.MapID, p.CharX, p.CharY, p.CharDirection,
 		p.CharLevel, p.CharExp, p.CharHP, p.CharTP,
+		p.ClassID, p.CharSkin,
 		p.Stats.Str, p.Stats.Intl, p.Stats.Wis,
 		p.Stats.Agi, p.Stats.Con, p.Stats.Cha,
 		p.StatPoints, p.SkillPoints,
@@ -362,6 +380,38 @@ func (p *Player) SaveCharacter() error {
 		}
 	}
 
+	if _, err := tx.ExecContext(ctx, "DELETE FROM character_quest_progress WHERE character_id = ?", charID); err != nil {
+		return fmt.Errorf("clear quest progress: %w", err)
+	}
+	for questID, qs := range p.QuestProgress.ActiveQuests {
+		npcKills := map[string]int{}
+		for npcID, count := range qs.NpcKills {
+			npcKills[fmt.Sprintf("%d", npcID)] = count
+		}
+		payload, err := json.Marshal(map[string]any{"state_name": qs.StateName, "npc_kills": npcKills})
+		if err != nil {
+			return fmt.Errorf("marshal active quest %d: %w", questID, err)
+		}
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO character_quest_progress (character_id, quest_id, state, npc_kills, player_kills, completions) VALUES (?, ?, ?, ?, ?, ?)",
+			charID, questID, 0, string(payload), 0, 0,
+		); err != nil {
+			return fmt.Errorf("insert active quest %d: %w", questID, err)
+		}
+	}
+	for questID := range p.QuestProgress.CompletedQuests {
+		payload, err := json.Marshal(map[string]any{"state_name": "done", "npc_kills": map[string]int{}})
+		if err != nil {
+			return fmt.Errorf("marshal completed quest %d: %w", questID, err)
+		}
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO character_quest_progress (character_id, quest_id, state, npc_kills, player_kills, done_at, completions) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)",
+			charID, questID, 1, string(payload), 0, 1,
+		); err != nil {
+			return fmt.Errorf("insert completed quest %d: %w", questID, err)
+		}
+	}
+
 	return tx.Commit()
 }
 
@@ -396,6 +446,61 @@ func (p *Player) TakeSessionID() (int, bool) {
 	return id, true
 }
 
+// TakeAndValidateSessionID returns true when the stored session id exists and
+// matches the expected value. The session is cleared in both cases to preserve
+// current single-use behavior.
+func (p *Player) TakeAndValidateSessionID(expected int) bool {
+	id, ok := p.TakeSessionID()
+	if !ok {
+		return false
+	}
+	return id == expected
+}
+
+// ValidateSessionID reports whether the current session id matches the expected
+// value without clearing it.
+func (p *Player) ValidateSessionID(expected int) bool {
+	if p.SessionID == nil {
+		return false
+	}
+	return *p.SessionID == expected
+}
+
+// ClearSessionID clears any stored handler session id.
+func (p *Player) ClearSessionID() {
+	p.SessionID = nil
+}
+
+func (p *Player) ClearRecoveryState() {
+	p.EmailPin = ""
+	p.RecoveryAccountName = ""
+	p.RecoveryPinExpiresAt = time.Time{}
+}
+
+func (p *Player) StartRecovery(accountName, pin string, now time.Time) {
+	p.ClearRecoveryState()
+	p.RecoveryAccountName = accountName
+	p.EmailPin = pin
+	p.RecoveryPinExpiresAt = now.Add(p.Cfg.Account.DelayDuration())
+}
+
+func (p *Player) HasActiveRecoveryPIN(now time.Time) bool {
+	if p.EmailPin == "" || p.RecoveryAccountName == "" {
+		return false
+	}
+
+	if p.RecoveryPinExpiresAt.IsZero() || !now.Before(p.RecoveryPinExpiresAt) {
+		p.ClearRecoveryState()
+		return false
+	}
+
+	return true
+}
+
+func (p *Player) IsDeep() bool {
+	return p.Version.Minor > 0
+}
+
 // CharacterStats holds the base stats for a character.
 type CharacterStats struct {
 	Str, Intl, Wis, Agi, Con, Cha int
@@ -408,6 +513,13 @@ type SpellState struct {
 	Level int
 }
 
+// SpellCastState tracks a requested spell cast until the target packet arrives.
+type SpellCastState struct {
+	ID        int
+	Timestamp int
+	StartedAt time.Time
+}
+
 // QuestProgressTracker tracks all quest progress for a player.
 type QuestProgressTracker struct {
 	ActiveQuests    map[int]*QuestState // questID -> state
@@ -418,6 +530,7 @@ type QuestProgressTracker struct {
 type QuestState struct {
 	QuestID   int
 	StateName string
+	NpcKills  map[int]int
 }
 
 func NewQuestProgress() *QuestProgressTracker {
@@ -436,13 +549,25 @@ func (p *QuestProgressTracker) GetQuestState(questID int) string {
 
 func (p *QuestProgressTracker) SetQuestState(questID int, stateName string) {
 	if _, ok := p.ActiveQuests[questID]; !ok {
-		p.ActiveQuests[questID] = &QuestState{QuestID: questID, StateName: stateName}
+		p.ActiveQuests[questID] = &QuestState{QuestID: questID, StateName: stateName, NpcKills: map[int]int{}}
 	} else {
 		p.ActiveQuests[questID].StateName = stateName
+		if p.ActiveQuests[questID].NpcKills == nil {
+			p.ActiveQuests[questID].NpcKills = map[int]int{}
+		}
 	}
 }
 
 func (p *QuestProgressTracker) CompleteQuest(questID int) {
 	delete(p.ActiveQuests, questID)
 	p.CompletedQuests[questID] = true
+}
+
+func (p *QuestProgressTracker) RecordNpcKill(npcID int) {
+	for _, qs := range p.ActiveQuests {
+		if qs.NpcKills == nil {
+			qs.NpcKills = map[int]int{}
+		}
+		qs.NpcKills[npcID]++
+	}
 }

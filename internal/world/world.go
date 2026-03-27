@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -13,25 +14,39 @@ import (
 
 	"github.com/avdo/goeoserv/internal/config"
 	"github.com/avdo/goeoserv/internal/db"
+	"github.com/avdo/goeoserv/internal/deep"
 	"github.com/avdo/goeoserv/internal/gamemap"
+	"github.com/avdo/goeoserv/internal/player"
 	"github.com/avdo/goeoserv/internal/protocol"
 	pubdata "github.com/avdo/goeoserv/internal/pub"
 	"github.com/ethanmoffat/eolib-go/v3/data"
 	eomap "github.com/ethanmoffat/eolib-go/v3/protocol/map"
 	eonet "github.com/ethanmoffat/eolib-go/v3/protocol/net"
+	"github.com/ethanmoffat/eolib-go/v3/protocol/net/server"
 )
 
 // playerEntry tracks which map a player is on and their bus for O(1) lookups.
 type playerEntry struct {
-	mapID int
-	name  string
-	bus   *protocol.PacketBus
+	mapID   int
+	name    string
+	bus     *protocol.PacketBus
+	session *player.Player
+}
+
+type captchaState struct {
+	challenge string
+	reward    int
+	attempts  int
 }
 
 // World manages all game maps, online players, and the game tick loop.
 type World struct {
 	mapMu sync.RWMutex
 	maps  map[int]*gamemap.GameMap
+	ticks int
+
+	arenaMu sync.Mutex
+	arenas  map[int]*arenaState
 
 	accountMu      sync.RWMutex
 	loggedAccounts map[int]bool // accountID -> logged in
@@ -40,6 +55,8 @@ type World struct {
 	playerMu    sync.RWMutex
 	playerIndex map[int]*playerEntry // playerID -> entry
 	nameIndex   map[string]int       // lowercase name -> playerID
+	muteUntil   map[int]time.Time
+	captchas    map[int]*captchaState
 
 	cfg *config.Config
 	db  *db.Database
@@ -48,9 +65,12 @@ type World struct {
 func New(cfg *config.Config, database *db.Database) *World {
 	return &World{
 		maps:           make(map[int]*gamemap.GameMap),
+		arenas:         make(map[int]*arenaState),
 		loggedAccounts: make(map[int]bool),
 		playerIndex:    make(map[int]*playerEntry),
 		nameIndex:      make(map[string]int),
+		muteUntil:      make(map[int]time.Time),
+		captchas:       make(map[int]*captchaState),
 		cfg:            cfg,
 		db:             database,
 	}
@@ -60,10 +80,28 @@ func New(cfg *config.Config, database *db.Database) *World {
 func (w *World) RegisterPlayer(playerID, mapID int, name string, bus *protocol.PacketBus) {
 	w.playerMu.Lock()
 	defer w.playerMu.Unlock()
-	w.playerIndex[playerID] = &playerEntry{mapID: mapID, name: name, bus: bus}
+	entry := w.playerIndex[playerID]
+	if entry == nil {
+		entry = &playerEntry{}
+		w.playerIndex[playerID] = entry
+	}
+	entry.mapID = mapID
+	entry.name = name
+	entry.bus = bus
 	if name != "" {
 		w.nameIndex[strings.ToLower(name)] = playerID
 	}
+}
+
+func (w *World) BindPlayerSession(playerID int, session *player.Player) {
+	w.playerMu.Lock()
+	defer w.playerMu.Unlock()
+	entry := w.playerIndex[playerID]
+	if entry == nil {
+		entry = &playerEntry{}
+		w.playerIndex[playerID] = entry
+	}
+	entry.session = session
 }
 
 // UnregisterPlayer removes a player from the global index.
@@ -76,6 +114,106 @@ func (w *World) UnregisterPlayer(playerID int) {
 		}
 		delete(w.playerIndex, playerID)
 	}
+	delete(w.muteUntil, playerID)
+	delete(w.captchas, playerID)
+}
+
+func (w *World) SetMutedUntil(playerID int, until time.Time) {
+	w.playerMu.Lock()
+	defer w.playerMu.Unlock()
+	w.muteUntil[playerID] = until
+}
+
+func (w *World) ClearMuted(playerID int) {
+	w.playerMu.Lock()
+	defer w.playerMu.Unlock()
+	delete(w.muteUntil, playerID)
+}
+
+func (w *World) GetMutedUntil(playerID int) (time.Time, bool) {
+	w.playerMu.RLock()
+	defer w.playerMu.RUnlock()
+	until, ok := w.muteUntil[playerID]
+	return until, ok
+}
+
+func (w *World) IsMuted(playerID int) bool {
+	w.playerMu.RLock()
+	until, ok := w.muteUntil[playerID]
+	w.playerMu.RUnlock()
+	return ok && time.Now().Before(until)
+}
+
+func (w *World) HasCaptcha(playerID int) bool {
+	w.playerMu.RLock()
+	defer w.playerMu.RUnlock()
+	_, ok := w.captchas[playerID]
+	return ok
+}
+
+func randomCaptcha() string {
+	b := make([]byte, 5)
+	for i := range b {
+		b[i] = byte(rand.IntN(26) + 65)
+	}
+	return string(b)
+}
+
+func (w *World) StartCaptcha(playerID int, reward int) bool {
+	w.playerMu.Lock()
+	entry := w.playerIndex[playerID]
+	if entry == nil || entry.bus == nil {
+		w.playerMu.Unlock()
+		return false
+	}
+	challenge := randomCaptcha()
+	w.captchas[playerID] = &captchaState{challenge: challenge, reward: reward}
+	bus := entry.bus
+	w.playerMu.Unlock()
+	payload, err := deep.SerializeCaptchaOpen(1, reward, challenge)
+	if err != nil {
+		return false
+	}
+	return bus.Send(eonet.PacketAction_Open, deep.FamilyCaptcha, payload) == nil
+}
+
+func (w *World) RefreshCaptcha(playerID int) bool {
+	w.playerMu.Lock()
+	entry := w.playerIndex[playerID]
+	state := w.captchas[playerID]
+	if entry == nil || entry.bus == nil || state == nil {
+		w.playerMu.Unlock()
+		return false
+	}
+	state.challenge = randomCaptcha()
+	state.attempts = 0
+	challenge := state.challenge
+	bus := entry.bus
+	w.playerMu.Unlock()
+	payload, err := deep.SerializeCaptchaAgree(1, challenge)
+	if err != nil {
+		return false
+	}
+	return bus.Send(eonet.PacketAction_Agree, deep.FamilyCaptcha, payload) == nil
+}
+
+func (w *World) VerifyCaptcha(playerID int, value string) (reward int, solved bool) {
+	w.playerMu.Lock()
+	defer w.playerMu.Unlock()
+	state := w.captchas[playerID]
+	if state == nil {
+		return 0, false
+	}
+	state.attempts++
+	if strings.EqualFold(strings.TrimSpace(value), state.challenge) {
+		reward = state.reward
+		delete(w.captchas, playerID)
+		return reward, true
+	}
+	if state.attempts > 5 {
+		delete(w.captchas, playerID)
+	}
+	return 0, false
 }
 
 // UpdatePlayerMap updates the map ID in the player index (e.g., after warp).
@@ -134,6 +272,11 @@ func (w *World) LoadMaps() error {
 		gm := gamemap.New(mapID, &emf, w.cfg)
 		gm.SpawnNPCs(w.cfg.NPCs.InstantSpawn)
 		w.maps[mapID] = gm
+		if arenaConfig := w.cfg.Arenas.MapConfig(mapID); arenaConfig != nil {
+			w.arenas[mapID] = newArenaState(mapID, arenaConfig)
+		} else if gm.HasArena() {
+			w.arenas[mapID] = newArenaState(mapID, nil)
+		}
 		count++
 	}
 
@@ -193,6 +336,7 @@ func (w *World) EnterMap(mapID int, charInfo any) {
 		m.Enter(mc)
 		// Register in global player index
 		w.RegisterPlayer(mc.PlayerID, mapID, mc.Name, mc.Bus)
+		w.syncArenaParticipation(mapID, mc.PlayerID, mc.Name)
 	}
 }
 
@@ -203,6 +347,7 @@ func (w *World) LeaveMap(mapID, playerID int) {
 		return
 	}
 	m.Leave(playerID)
+	w.leaveArena(mapID, playerID)
 	w.UnregisterPlayer(playerID)
 }
 
@@ -213,6 +358,9 @@ func (w *World) Walk(mapID, playerID int, direction int, coords [2]int) {
 		return
 	}
 	m.Walk(playerID, direction, coords)
+	if w.arenaUsesQueueSpawns(mapID) {
+		w.syncArenaParticipation(mapID, playerID, w.GetPlayerName(playerID))
+	}
 }
 
 // Face handles a player changing direction on a map.
@@ -250,17 +398,64 @@ func (w *World) RunTickLoop(ctx context.Context) {
 }
 
 func (w *World) tick() {
+	w.ticks++
+	shouldAutoPickup := w.cfg.AutoPickup.Enabled && w.cfg.AutoPickup.Rate > 0 && w.ticks%w.cfg.AutoPickup.Rate == 0
+
 	w.mapMu.RLock()
-	defer w.mapMu.RUnlock()
 	for _, m := range w.maps {
 		m.Tick()
+		if shouldAutoPickup {
+			w.tickAutoPickup(m)
+		}
 	}
+	w.mapMu.RUnlock()
+
+	w.tickArenas()
+
 	// Advance wedding state machines
 	delayTicks := w.cfg.Marriage.CeremonyStartDelaySeconds * 8
 	if delayTicks <= 0 {
 		delayTicks = 160 // default 20 seconds
 	}
 	TickWeddings(delayTicks)
+}
+
+func (w *World) TryStartJukebox(mapID, trackID int) bool {
+	m := w.getMap(mapID)
+	if m == nil {
+		return false
+	}
+
+	return m.TryStartJukebox(trackID)
+}
+
+func (w *World) tickAutoPickup(m *gamemap.GameMap) {
+	for _, playerID := range m.AutoPickupPlayerIDs() {
+		session := w.GetPlayerSession(playerID)
+		if session == nil {
+			continue
+		}
+
+		item := m.PickupAutoItem(playerID)
+		if item == nil {
+			continue
+		}
+
+		session.Mu.Lock()
+		session.AddItem(item.ItemID, item.Amount)
+		session.CalculateStats()
+		currentAmount := session.Inventory[item.ItemID]
+		currentWeight := session.Weight
+		maxWeight := session.MaxWeight
+		bus := session.Bus
+		session.Mu.Unlock()
+
+		_ = bus.SendPacket(&server.ItemGetServerPacket{
+			TakenItemIndex: item.UID,
+			TakenItem:      eonet.ThreeItem{Id: item.ItemID, Amount: currentAmount},
+			Weight:         eonet.Weight{Current: currentWeight, Max: maxWeight},
+		})
+	}
 }
 
 // BroadcastMap sends a packet to all players on a map except excludeID.
@@ -316,6 +511,14 @@ func (w *World) DamageNpc(mapID, npcIndex, playerID, damage int) (int, bool, int
 		return 0, false, 0
 	}
 	return m.DamageNpc(npcIndex, playerID, damage)
+}
+
+func (w *World) GetNpcHpPercentage(mapID, npcIndex int) int {
+	m := w.getMap(mapID)
+	if m == nil {
+		return 0
+	}
+	return m.GetNpcHpPercentage(npcIndex)
 }
 
 // GetNpcAt returns the NPC index at the given coordinates on a map.
@@ -380,6 +583,15 @@ func (w *World) GetPlayerBus(playerID int) any {
 	return nil
 }
 
+func (w *World) GetPlayerSession(playerID int) *player.Player {
+	w.playerMu.RLock()
+	defer w.playerMu.RUnlock()
+	if e := w.playerIndex[playerID]; e != nil {
+		return e.session
+	}
+	return nil
+}
+
 // GetPlayerPosition finds a player across all maps and returns their position.
 func (w *World) GetPlayerPosition(playerID int) any {
 	w.playerMu.RLock()
@@ -393,6 +605,38 @@ func (w *World) GetPlayerPosition(playerID int) any {
 		return nil
 	}
 	return m.GetPlayerPosition(playerID)
+}
+
+func (w *World) GetPlayerAt(mapID, x, y int) int {
+	m := w.getMap(mapID)
+	if m == nil {
+		return 0
+	}
+	return m.GetPlayerAt(x, y)
+}
+
+func (w *World) IsAttackTileBlocked(mapID, x, y int) bool {
+	m := w.getMap(mapID)
+	if m == nil {
+		return true
+	}
+	return m.IsAttackTileBlocked(x, y)
+}
+
+func (w *World) IsPkMap(mapID int) bool {
+	m := w.getMap(mapID)
+	if m == nil {
+		return false
+	}
+	return m.IsPkMap()
+}
+
+func (w *World) UpdatePlayerVitals(mapID, playerID, hp, tp int) {
+	m := w.getMap(mapID)
+	if m == nil {
+		return
+	}
+	m.UpdatePlayerVitals(playerID, hp, tp)
 }
 
 // OnlinePlayerCount returns the total number of players across all maps.
@@ -437,15 +681,22 @@ func (w *World) WarpPlayer(playerID, fromMapID, toMapID, toX, toY int) any {
 		return nil
 	}
 
+	sameMapWarp := fromMapID == toMapID
 	ch := fromMap.RemoveAndReturn(playerID)
 	if ch == nil {
 		return nil
+	}
+	if !sameMapWarp {
+		w.leaveArena(fromMapID, playerID)
 	}
 
 	ch.X = toX
 	ch.Y = toY
 	ch.MapID = toMapID
 	toMap.Enter(ch)
+	if !sameMapWarp {
+		w.syncArenaParticipation(toMapID, playerID, ch.Name)
+	}
 
 	// Update player index with new map
 	w.UpdatePlayerMap(playerID, toMapID)
@@ -518,6 +769,15 @@ func (w *World) GetNpcEnfID(mapID, npcIndex int) int {
 		return 0
 	}
 	return npc.ID
+}
+
+// OpenDoor attempts to open a door warp tile on a map.
+func (w *World) OpenDoor(mapID, playerID, x, y int) bool {
+	m := w.getMap(mapID)
+	if m == nil {
+		return false
+	}
+	return m.OpenDoor(playerID, x, y)
 }
 
 // GetPlayerName returns a player's character name using O(1) index lookup.

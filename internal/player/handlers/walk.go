@@ -18,6 +18,9 @@ func handleWalkPlayer(ctx context.Context, p *player.Player, reader *player.EoRe
 		slog.Debug("walk rejected: not in game", "id", p.ID, "state", p.State, "hasWorld", p.World != nil)
 		return nil
 	}
+	if p.World.HasCaptcha(p.ID) {
+		return nil
+	}
 
 	var pkt client.WalkPlayerClientPacket
 	if err := pkt.Deserialize(reader); err != nil {

@@ -49,6 +49,7 @@ func handleWarpAccept(ctx context.Context, p *player.Player, reader *player.EoRe
 	p.MapID = toMapID
 	p.CharX = toX
 	p.CharY = toY
+	p.World.UpdatePlayerVitals(p.MapID, p.ID, p.CharHP, p.CharTP)
 
 	var nearby server.NearbyInfo
 	if ni, ok := raw.(*server.NearbyInfo); ok && ni != nil {

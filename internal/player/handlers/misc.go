@@ -15,36 +15,20 @@ func init() {
 	player.Register(eonet.PacketFamily_Jukebox, eonet.PacketAction_Open, handleJukeboxOpen)
 	player.Register(eonet.PacketFamily_Jukebox, eonet.PacketAction_Msg, handleJukeboxMsg)
 
-
-	// Citizen (inn)
-	player.Register(eonet.PacketFamily_Citizen, eonet.PacketAction_Open, handleCitizenNoop)
-	player.Register(eonet.PacketFamily_Citizen, eonet.PacketAction_Request, handleCitizenNoop)
-	player.Register(eonet.PacketFamily_Citizen, eonet.PacketAction_Accept, handleCitizenNoop)
-	player.Register(eonet.PacketFamily_Citizen, eonet.PacketAction_Reply, handleCitizenNoop)
-	player.Register(eonet.PacketFamily_Citizen, eonet.PacketAction_Remove, handleCitizenNoop)
-
-	// Priest / Marriage
-	player.Register(eonet.PacketFamily_Priest, eonet.PacketAction_Open, handlePriestNoop)
-	player.Register(eonet.PacketFamily_Priest, eonet.PacketAction_Request, handlePriestNoop)
-	player.Register(eonet.PacketFamily_Priest, eonet.PacketAction_Accept, handlePriestNoop)
-	player.Register(eonet.PacketFamily_Priest, eonet.PacketAction_Use, handlePriestNoop)
-	player.Register(eonet.PacketFamily_Marriage, eonet.PacketAction_Open, handleMarriageNoop)
-	player.Register(eonet.PacketFamily_Marriage, eonet.PacketAction_Request, handleMarriageNoop)
-
 	// AdminInteract
-	player.Register(eonet.PacketFamily_AdminInteract, eonet.PacketAction_Tell, handleAdminInteractNoop)
-	player.Register(eonet.PacketFamily_AdminInteract, eonet.PacketAction_Report, handleAdminInteractNoop)
+	player.Register(eonet.PacketFamily_AdminInteract, eonet.PacketAction_Tell, handleAdminInteractTell)
+	player.Register(eonet.PacketFamily_AdminInteract, eonet.PacketAction_Report, handleAdminInteractReport)
 
 	// Book (character info)
-	player.Register(eonet.PacketFamily_Book, eonet.PacketAction_Request, handleBookNoop)
+	player.Register(eonet.PacketFamily_Book, eonet.PacketAction_Request, handleBookRequest)
 
 	// Message (server message)
-	player.Register(eonet.PacketFamily_Message, eonet.PacketAction_Ping, handleMessageNoop)
+	player.Register(eonet.PacketFamily_Message, eonet.PacketAction_Ping, handleMessagePing)
 
 	// Players list
 	player.Register(eonet.PacketFamily_Players, eonet.PacketAction_Request, handlePlayersRequest)
-	player.Register(eonet.PacketFamily_Players, eonet.PacketAction_Accept, handlePlayersNoop)
-	player.Register(eonet.PacketFamily_Players, eonet.PacketAction_List, handlePlayersNoop)
+	player.Register(eonet.PacketFamily_Players, eonet.PacketAction_Accept, handlePlayersAccept)
+	player.Register(eonet.PacketFamily_Players, eonet.PacketAction_List, handlePlayersList)
 }
 
 // Jukebox
@@ -74,19 +58,25 @@ func handleJukeboxMsg(ctx context.Context, p *player.Player, reader *player.EoRe
 		return nil
 	}
 
-	// Broadcast track to all players on map (1-indexed for server packet)
-	if p.World != nil {
-		p.World.BroadcastMap(p.MapID, -1, &server.JukeboxUseServerPacket{
-			TrackId: pkt.TrackId + 1,
-		})
+	if p.World == nil {
+		p.AddItem(1, p.Cfg.Jukebox.Cost)
+		return nil
 	}
+
+	if !p.World.TryStartJukebox(p.MapID, pkt.TrackId) {
+		p.AddItem(1, p.Cfg.Jukebox.Cost)
+		return nil
+	}
+
+	// Broadcast track to all players on map (1-indexed for server packet)
+	p.World.BroadcastMap(p.MapID, -1, &server.JukeboxUseServerPacket{
+		TrackId: pkt.TrackId + 1,
+	})
 
 	return p.Bus.SendPacket(&server.JukeboxAgreeServerPacket{
 		GoldAmount: p.Inventory[1],
 	})
 }
-
-
 
 // Players list (online users)
 func handlePlayersRequest(ctx context.Context, p *player.Player, _ *player.EoReader) error {
@@ -118,15 +108,14 @@ func handlePlayersRequest(ctx context.Context, p *player.Player, _ *player.EoRea
 }
 
 // No-op stubs for unimplemented features
-func handleCitizenNoop(_ context.Context, _ *player.Player, _ *player.EoReader) error  { return nil }
-func handlePriestNoop(_ context.Context, _ *player.Player, _ *player.EoReader) error   { return nil }
-func handleMarriageNoop(_ context.Context, _ *player.Player, _ *player.EoReader) error { return nil }
-func handleAdminInteractNoop(_ context.Context, _ *player.Player, _ *player.EoReader) error {
-	return nil
+func handleCitizenNoop(_ context.Context, _ *player.Player, _ *player.EoReader) error { return nil }
+
+func handleMessagePing(_ context.Context, p *player.Player, _ *player.EoReader) error {
+	if p.State != player.StateInGame {
+		return nil
+	}
+	return p.Bus.SendPacket(&server.MessagePongServerPacket{})
 }
-func handleBookNoop(_ context.Context, _ *player.Player, _ *player.EoReader) error    { return nil }
-func handleMessageNoop(_ context.Context, _ *player.Player, _ *player.EoReader) error { return nil }
-func handlePlayersNoop(_ context.Context, _ *player.Player, _ *player.EoReader) error { return nil }
 
 func adminIcon(admin int) server.CharacterIcon {
 	switch {

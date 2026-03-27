@@ -236,3 +236,21 @@ items:
 auto_pickup:
   enabled: false
   rate: 8
+
+content:
+  shop_file: ""
+  skill_master_file: ""
+
+arenas:
+  maps: []
+  # Example queue-driven arena closer to reoserv:
+  # maps:
+  #   - map: 187
+  #     countdown_seconds: 5
+  #     min_players: 2
+  #     max_players: 4
+  #     queue_spawns:
+  #       - from: { x: 6, y: 3 }
+  #         to: { x: 6, y: 10 }
+  #       - from: { x: 8, y: 3 }
+  #         to: { x: 8, y: 10 }

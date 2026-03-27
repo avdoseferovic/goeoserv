@@ -56,6 +56,25 @@ func TestSequencer_Start(t *testing.T) {
 	}
 }
 
+func TestSequencer_Reset(t *testing.T) {
+	t.Parallel()
+	s := NewSequencer()
+
+	for range 3 {
+		s.NextSequence()
+	}
+
+	s.Reset(100)
+
+	if got := s.Start(); got != 100 {
+		t.Fatalf("Start() after Reset(100) = %d, want 100", got)
+	}
+
+	if got := s.NextSequence(); got != 100 {
+		t.Fatalf("NextSequence() after Reset(100) = %d, want 100", got)
+	}
+}
+
 func TestGenerateInitSequenceBytes(t *testing.T) {
 	t.Parallel()
 	for range 1000 {

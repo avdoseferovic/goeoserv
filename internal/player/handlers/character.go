@@ -70,8 +70,7 @@ func handleCharacterCreate(ctx context.Context, p *player.Player, reader *player
 	}
 
 	// Validate session
-	sessionID, ok := p.TakeSessionID()
-	if !ok || sessionID != pkt.SessionId {
+	if !p.TakeAndValidateSessionID(pkt.SessionId) {
 		slog.Warn("wrong session id in character create", "id", p.ID)
 		p.Close()
 		return nil
@@ -200,8 +199,7 @@ func handleCharacterRemove(ctx context.Context, p *player.Player, reader *player
 		return nil
 	}
 
-	sessionID, ok := p.TakeSessionID()
-	if !ok || sessionID != pkt.SessionId {
+	if !p.TakeAndValidateSessionID(pkt.SessionId) {
 		slog.Warn("wrong session id in character remove", "id", p.ID)
 		p.Close()
 		return nil

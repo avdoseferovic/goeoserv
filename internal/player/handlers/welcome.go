@@ -3,10 +3,12 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 
 	"github.com/avdo/goeoserv/internal/gamemap"
 	"github.com/avdo/goeoserv/internal/player"
@@ -141,6 +143,10 @@ func handleWelcomeRequest(ctx context.Context, p *player.Player, reader *player.
 		slog.Warn("failed to load spells", "id", p.ID, "err", err)
 	}
 
+	if err := loadQuestProgress(ctx, p); err != nil {
+		slog.Warn("failed to load quest progress", "id", p.ID, "err", err)
+	}
+
 	// Calculate derived stats from base + equipment + class
 	p.CalculateStats()
 
@@ -256,6 +262,48 @@ func handleWelcomeAgree(ctx context.Context, p *player.Player, reader *player.Eo
 	return nil
 }
 
+func loadQuestProgress(ctx context.Context, p *player.Player) error {
+	if p.CharacterID == nil {
+		return nil
+	}
+	rows, err := p.DB.Query(ctx, `SELECT quest_id, state, npc_kills, completions FROM character_quest_progress WHERE character_id = ?`, *p.CharacterID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type questPayload struct {
+		StateName string         `json:"state_name"`
+		NpcKills  map[string]int `json:"npc_kills"`
+	}
+
+	p.QuestProgress = player.NewQuestProgress()
+	for rows.Next() {
+		var questID, stateCode, completions int
+		var raw string
+		if err := rows.Scan(&questID, &stateCode, &raw, &completions); err != nil {
+			continue
+		}
+		payload := questPayload{StateName: "Begin", NpcKills: map[string]int{}}
+		_ = json.Unmarshal([]byte(raw), &payload)
+		if stateCode == 1 || completions > 0 || payload.StateName == "done" {
+			p.QuestProgress.CompletedQuests[questID] = true
+			continue
+		}
+		if payload.StateName == "" {
+			payload.StateName = "Begin"
+		}
+		npcKills := map[int]int{}
+		for k, v := range payload.NpcKills {
+			if id, err := strconv.Atoi(k); err == nil {
+				npcKills[id] = v
+			}
+		}
+		p.QuestProgress.ActiveQuests[questID] = &player.QuestState{QuestID: questID, StateName: payload.StateName, NpcKills: npcKills}
+	}
+	return nil
+}
+
 func sendPubFile(p *player.Player, path string, fileID int, replyCode server.InitReply) error {
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -327,6 +375,7 @@ func handleWelcomeMsg(ctx context.Context, p *player.Player, reader *player.EoRe
 			},
 			Bus: p.Bus,
 		})
+		p.World.BindPlayerSession(p.ID, p)
 	}
 
 	// Get nearby info (includes ourselves + other players + NPCs + items)

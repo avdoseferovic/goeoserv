@@ -115,6 +115,11 @@ func handleTradeAdd(ctx context.Context, p *player.Player, reader *player.EoRead
 	if p.Inventory[pkt.AddItem.Id] < amount {
 		return nil
 	}
+	for _, protectedID := range p.Cfg.Items.ProtectedItems {
+		if protectedID == pkt.AddItem.Id {
+			return nil
+		}
+	}
 
 	if p.TradeItems == nil {
 		p.TradeItems = make(map[int]int)

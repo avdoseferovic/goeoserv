@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/avdo/goeoserv/internal/content"
 	"github.com/avdo/goeoserv/internal/player"
 	eonet "github.com/ethanmoffat/eolib-go/v3/protocol/net"
 	"github.com/ethanmoffat/eolib-go/v3/protocol/net/client"
@@ -18,7 +19,6 @@ func init() {
 	player.Register(eonet.PacketFamily_StatSkill, eonet.PacketAction_Junk, handleStatSkillJunk)
 }
 
-// handleStatSkillOpen opens the skill master dialog.
 func handleStatSkillOpen(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
@@ -31,15 +31,34 @@ func handleStatSkillOpen(ctx context.Context, p *player.Player, reader *player.E
 	}
 
 	sessionID := p.GenerateSessionID()
+	npcID := 0
+	if p.World != nil {
+		npcID = p.World.GetNpcEnfID(p.MapID, pkt.NpcIndex)
+	}
+	master, ok := content.GetSkillMaster(npcID)
+	if !ok {
+		return p.Bus.SendPacket(&server.StatSkillOpenServerPacket{SessionId: sessionID, ShopName: "Skill Master"})
+	}
 
-	// Skill master data files not yet loaded; return basic response with session
-	return p.Bus.SendPacket(&server.StatSkillOpenServerPacket{
-		SessionId: sessionID,
-		ShopName:  "Skill Master",
-	})
+	skills := make([]server.SkillLearn, 0, len(master.Spells))
+	for _, spell := range master.Spells {
+		reqs := []int{0, 0, 0, 0}
+		if spell.RequiredID > 0 {
+			reqs[0] = spell.RequiredID
+		}
+		skills = append(skills, server.SkillLearn{
+			Id:                spell.SpellID,
+			LevelRequirement:  spell.MinLevel,
+			ClassRequirement:  spell.ClassID,
+			Cost:              spell.Cost,
+			SkillRequirements: reqs,
+			StatRequirements:  server.CharacterBaseStats{},
+		})
+	}
+
+	return p.Bus.SendPacket(&server.StatSkillOpenServerPacket{SessionId: sessionID, ShopName: master.Name, Skills: skills})
 }
 
-// handleStatSkillAdd handles stat point allocation or skill point spending.
 func handleStatSkillAdd(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
@@ -54,14 +73,9 @@ func handleStatSkillAdd(ctx context.Context, p *player.Player, reader *player.Eo
 	switch pkt.ActionType {
 	case client.Train_Stat:
 		data, ok := pkt.ActionTypeData.(*client.StatSkillAddActionTypeDataStat)
-		if !ok || data == nil {
+		if !ok || data == nil || p.StatPoints <= 0 {
 			return nil
 		}
-
-		if p.StatPoints <= 0 {
-			return nil
-		}
-
 		p.StatPoints--
 		switch data.StatId {
 		case client.StatId_Str:
@@ -77,51 +91,19 @@ func handleStatSkillAdd(ctx context.Context, p *player.Player, reader *player.Eo
 		case client.StatId_Cha:
 			p.Stats.Cha++
 		}
-
-		return p.Bus.SendPacket(&server.StatSkillPlayerServerPacket{
-			StatPoints: p.StatPoints,
-			Stats: server.CharacterStatsUpdate{
-				BaseStats: server.CharacterBaseStats{
-					Str:  p.Stats.Str,
-					Intl: p.Stats.Intl,
-					Wis:  p.Stats.Wis,
-					Agi:  p.Stats.Agi,
-					Con:  p.Stats.Con,
-					Cha:  p.Stats.Cha,
-				},
-				MaxHp:     p.Stats.MaxHP,
-				MaxTp:     p.Stats.MaxTP,
-				MaxSp:     p.CharMaxSP,
-				MaxWeight: 70,
-				SecondaryStats: server.CharacterSecondaryStats{
-					MinDamage: p.Stats.Str / 2,
-					MaxDamage: p.Stats.Str,
-					Accuracy:  p.Stats.Agi / 2,
-					Evade:     p.Stats.Agi / 2,
-					Armor:     p.Stats.Con / 2,
-				},
-			},
-		})
+		p.CalculateStats()
+		return p.Bus.SendPacket(&server.StatSkillPlayerServerPacket{StatPoints: p.StatPoints, Stats: statUpdate(p)})
 
 	case client.Train_Skill:
 		data, ok := pkt.ActionTypeData.(*client.StatSkillAddActionTypeDataSkill)
-		if !ok || data == nil {
+		if !ok || data == nil || p.SkillPoints <= 0 {
 			return nil
 		}
-
-		if p.SkillPoints <= 0 {
-			return nil
-		}
-
-		// Level up the spell
 		for i := range p.Spells {
 			if p.Spells[i].ID == data.SpellId {
 				p.Spells[i].Level++
 				p.SkillPoints--
-				return p.Bus.SendPacket(&server.StatSkillAcceptServerPacket{
-					SkillPoints: p.SkillPoints,
-					Spell:       eonet.Spell{Id: data.SpellId, Level: p.Spells[i].Level},
-				})
+				return p.Bus.SendPacket(&server.StatSkillAcceptServerPacket{SkillPoints: p.SkillPoints, Spell: eonet.Spell{Id: data.SpellId, Level: p.Spells[i].Level}})
 			}
 		}
 	}
@@ -129,7 +111,6 @@ func handleStatSkillAdd(ctx context.Context, p *player.Player, reader *player.Eo
 	return nil
 }
 
-// handleStatSkillTake learns a new spell from the skill master.
 func handleStatSkillTake(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
@@ -140,33 +121,38 @@ func handleStatSkillTake(ctx context.Context, p *player.Player, reader *player.E
 		slog.Error("failed to deserialize stat skill take", "id", p.ID, "err", err)
 		return nil
 	}
-
-	// Validate session
-	if _, ok := p.TakeSessionID(); !ok {
+	if !p.ValidateSessionID(pkt.SessionId) {
 		return nil
 	}
 
-	// Deduct gold cost for learning (placeholder: 100 gold per spell)
-	if !p.RemoveItem(1, 100) {
+	learn, ok := findSkillLearn(pkt.SpellId)
+	if !ok {
 		return nil
 	}
-
-	// Check not already learned
+	if learn.MinLevel > 0 && p.CharLevel < learn.MinLevel {
+		return p.Bus.SendPacket(&server.StatSkillReplyServerPacket{ReplyCode: server.SkillMasterReply_WrongClass})
+	}
+	if learn.ClassID > 0 && p.ClassID != learn.ClassID {
+		return p.Bus.SendPacket(&server.StatSkillReplyServerPacket{ReplyCode: server.SkillMasterReply_WrongClass})
+	}
+	if learn.RequiredID > 0 && p.Inventory[learn.RequiredID] < learn.RequiredN {
+		return p.Bus.SendPacket(&server.StatSkillReplyServerPacket{ReplyCode: server.SkillMasterReply_RemoveItems})
+	}
+	if !p.RemoveItem(1, learn.Cost) {
+		return nil
+	}
+	if learn.RequiredID > 0 && learn.RequiredN > 0 {
+		p.RemoveItem(learn.RequiredID, learn.RequiredN)
+	}
 	for _, s := range p.Spells {
 		if s.ID == pkt.SpellId {
 			return nil
 		}
 	}
-
 	p.Spells = append(p.Spells, player.SpellState{ID: pkt.SpellId, Level: 1})
-
-	return p.Bus.SendPacket(&server.StatSkillTakeServerPacket{
-		SpellId:    pkt.SpellId,
-		GoldAmount: p.Inventory[1],
-	})
+	return p.Bus.SendPacket(&server.StatSkillTakeServerPacket{SpellId: pkt.SpellId, GoldAmount: p.Inventory[1]})
 }
 
-// handleStatSkillRemove forgets a spell.
 func handleStatSkillRemove(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
@@ -177,20 +163,19 @@ func handleStatSkillRemove(ctx context.Context, p *player.Player, reader *player
 		slog.Error("failed to deserialize stat skill remove", "id", p.ID, "err", err)
 		return nil
 	}
+	if !p.ValidateSessionID(pkt.SessionId) {
+		return nil
+	}
 
 	for i, s := range p.Spells {
 		if s.ID == pkt.SpellId {
 			p.Spells = append(p.Spells[:i], p.Spells[i+1:]...)
-			return p.Bus.SendPacket(&server.StatSkillRemoveServerPacket{
-				SpellId: pkt.SpellId,
-			})
+			return p.Bus.SendPacket(&server.StatSkillRemoveServerPacket{SpellId: pkt.SpellId})
 		}
 	}
-
 	return nil
 }
 
-// handleStatSkillJunk resets stats (full stat/skill reset).
 func handleStatSkillJunk(ctx context.Context, p *player.Player, reader *player.EoReader) error {
 	if p.State != player.StateInGame {
 		return nil
@@ -201,9 +186,10 @@ func handleStatSkillJunk(ctx context.Context, p *player.Player, reader *player.E
 		slog.Error("failed to deserialize stat skill junk", "id", p.ID, "err", err)
 		return nil
 	}
-	_ = pkt
+	if !p.ValidateSessionID(pkt.SessionId) {
+		return nil
+	}
 
-	// Reset all stats to 0 and refund the points
 	refunded := p.Stats.Str + p.Stats.Intl + p.Stats.Wis + p.Stats.Agi + p.Stats.Con + p.Stats.Cha
 	p.Stats.Str = 0
 	p.Stats.Intl = 0
@@ -212,29 +198,35 @@ func handleStatSkillJunk(ctx context.Context, p *player.Player, reader *player.E
 	p.Stats.Con = 0
 	p.Stats.Cha = 0
 	p.StatPoints += refunded
+	p.CalculateStats()
 
-	return p.Bus.SendPacket(&server.StatSkillPlayerServerPacket{
-		StatPoints: p.StatPoints,
-		Stats: server.CharacterStatsUpdate{
-			BaseStats: server.CharacterBaseStats{
-				Str:  0,
-				Intl: 0,
-				Wis:  0,
-				Agi:  0,
-				Con:  0,
-				Cha:  0,
-			},
-			MaxHp:     p.Stats.MaxHP,
-			MaxTp:     p.Stats.MaxTP,
-			MaxSp:     p.CharMaxSP,
-			MaxWeight: 70,
-			SecondaryStats: server.CharacterSecondaryStats{
-				MinDamage: 0,
-				MaxDamage: 0,
-				Accuracy:  0,
-				Evade:     0,
-				Armor:     0,
-			},
+	return p.Bus.SendPacket(&server.StatSkillPlayerServerPacket{StatPoints: p.StatPoints, Stats: statUpdate(p)})
+}
+
+func findSkillLearn(spellID int) (content.SkillSpell, bool) {
+	for _, master := range content.Current().SkillMasters {
+		for _, spell := range master.Spells {
+			if spell.SpellID == spellID {
+				return spell, true
+			}
+		}
+	}
+	return content.SkillSpell{}, false
+}
+
+func statUpdate(p *player.Player) server.CharacterStatsUpdate {
+	return server.CharacterStatsUpdate{
+		BaseStats: server.CharacterBaseStats{Str: p.Stats.Str, Intl: p.Stats.Intl, Wis: p.Stats.Wis, Agi: p.Stats.Agi, Con: p.Stats.Con, Cha: p.Stats.Cha},
+		MaxHp:     p.CharMaxHP,
+		MaxTp:     p.CharMaxTP,
+		MaxSp:     p.CharMaxSP,
+		MaxWeight: p.MaxWeight,
+		SecondaryStats: server.CharacterSecondaryStats{
+			MinDamage: p.MinDamage,
+			MaxDamage: p.MaxDamage,
+			Accuracy:  p.Accuracy,
+			Evade:     p.Evade,
+			Armor:     p.Armor,
 		},
-	})
+	}
 }

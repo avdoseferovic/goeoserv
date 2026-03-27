@@ -61,6 +61,9 @@ func handleItemDrop(ctx context.Context, p *player.Player, reader *player.EoRead
 
 	itemID := pkt.Item.Id
 	amount := pkt.Item.Amount
+	if isProtectedItem(p, itemID) {
+		return nil
+	}
 
 	if !p.RemoveItem(itemID, amount) {
 		return nil
@@ -107,6 +110,9 @@ func handleItemJunk(ctx context.Context, p *player.Player, reader *player.EoRead
 
 	itemID := pkt.Item.Id
 	amount := pkt.Item.Amount
+	if isProtectedItem(p, itemID) {
+		return nil
+	}
 
 	if !p.RemoveItem(itemID, amount) {
 		return nil
@@ -233,4 +239,13 @@ func handleItemUse(ctx context.Context, p *player.Player, reader *player.EoReade
 	reply.Weight = eonet.Weight{Current: p.Weight, Max: p.MaxWeight}
 
 	return p.Bus.SendPacket(reply)
+}
+
+func isProtectedItem(p *player.Player, itemID int) bool {
+	for _, protectedID := range p.Cfg.Items.ProtectedItems {
+		if protectedID == itemID {
+			return true
+		}
+	}
+	return false
 }

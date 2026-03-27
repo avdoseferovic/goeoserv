@@ -1,4 +1,4 @@
-.PHONY: build run test clean
+.PHONY: build run test docker-build clean
 
 build:
 	go build -o bin/goeoserv ./cmd/goeoserv
@@ -8,6 +8,9 @@ run: build
 
 test:
 	go test ./...
+
+docker-build:
+	docker build -t goeoserv:local .
 
 clean:
 	rm -rf bin/

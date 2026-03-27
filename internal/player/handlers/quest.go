@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/avdo/goeoserv/internal/formula"
 	"github.com/avdo/goeoserv/internal/player"
 	"github.com/avdo/goeoserv/internal/quest"
 	eonet "github.com/ethanmoffat/eolib-go/v3/protocol/net"
@@ -32,6 +33,9 @@ func handleQuestUse(ctx context.Context, p *player.Player, reader *player.EoRead
 
 	q, ok := quest.QuestDB[pkt.QuestId]
 	if !ok {
+		return nil
+	}
+	if p.QuestProgress.CompletedQuests[pkt.QuestId] {
 		return nil
 	}
 
@@ -84,7 +88,9 @@ func handleQuestAccept(ctx context.Context, p *player.Player, reader *player.EoR
 		NpcKills:  make(map[int]int),
 	}
 	if qs, ok := p.QuestProgress.ActiveQuests[pkt.QuestId]; ok {
-		_ = qs // NpcKills tracked at quest progress level if needed
+		for npcID, count := range qs.NpcKills {
+			questCtx.NpcKills[npcID] = count
+		}
 	}
 
 	// Process rules to find the next state
@@ -100,10 +106,12 @@ func handleQuestAccept(ctx context.Context, p *player.Player, reader *player.EoR
 				} else {
 					p.QuestProgress.SetQuestState(pkt.QuestId, "Begin")
 				}
+				_ = p.SaveCharacter()
 				return nil
 			}
 
 			p.QuestProgress.SetQuestState(pkt.QuestId, nextState)
+			_ = p.SaveCharacter()
 
 			// Show the next state's dialog
 			newState := q.GetState(nextState)
@@ -228,21 +236,29 @@ func executeQuestRewards(p *player.Player, state *quest.State) {
 				itemID := action.Args[0].IntVal
 				amount := action.Args[1].IntVal
 				p.Inventory[itemID] += amount
+				p.CalculateStats()
 			}
 		case "giveexp":
 			// GiveExp(amount)
 			if len(action.Args) >= 1 && !action.Args[0].IsStr {
 				p.CharExp += action.Args[0].IntVal
+				p.CharLevel = formula.LevelForExp(p.CharExp)
 			}
 		case "removeitem":
 			// RemoveItem(item_id, amount)
 			if len(action.Args) >= 2 && !action.Args[0].IsStr && !action.Args[1].IsStr {
 				p.RemoveItem(action.Args[0].IntVal, action.Args[1].IntVal)
+				p.CalculateStats()
 			}
 		case "setclass":
-			// SetClass(class_id) - placeholder
+			if len(action.Args) >= 1 && !action.Args[0].IsStr {
+				p.ClassID = action.Args[0].IntVal
+				p.CalculateStats()
+			}
 		case "setrace":
-			// SetRace(race_id) - placeholder
+			if len(action.Args) >= 1 && !action.Args[0].IsStr {
+				p.CharSkin = action.Args[0].IntVal
+			}
 		}
 	}
 }

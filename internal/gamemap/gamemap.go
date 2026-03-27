@@ -12,26 +12,27 @@ import (
 
 // MapCharacter represents a player's character on a map.
 type MapCharacter struct {
-	PlayerID    int
-	Name        string
-	MapID       int
-	X, Y        int
-	Direction   int
-	ClassID     int
-	GuildTag    string
-	Level       int
-	Gender      int
-	HairStyle   int
-	HairColor   int
-	Skin        int
-	Admin       int
-	HP, MaxHP   int
-	TP, MaxTP   int
-	Equipment   EquipmentData
-	Bus         *protocol.PacketBus
+	PlayerID      int
+	Name          string
+	MapID         int
+	X, Y          int
+	Direction     int
+	ClassID       int
+	GuildTag      string
+	Level         int
+	Gender        int
+	HairStyle     int
+	HairColor     int
+	Skin          int
+	Admin         int
+	HP, MaxHP     int
+	TP, MaxTP     int
+	Equipment     EquipmentData
+	Bus           *protocol.PacketBus
 	SitState      int // 0 = standing, 1 = chair, 2 = floor
 	PendingWarp   *WarpDest
 	WarpSuckTicks int // countdown to warp suck check
+	GhostTicks    int
 }
 
 // WarpDest stores a pending warp destination.
@@ -56,7 +57,10 @@ type GameMap struct {
 	groundItems []*GroundItem
 	chests      map[[2]int]*Chest
 	tiles       map[[2]int]eomap.MapTileSpec
+	arenaTiles  map[[2]int]struct{}
 	warps       map[[2]int]eomap.MapWarp
+	openDoors   map[[2]int]int
+	hasJukebox  bool
 	tickCount   int
 
 	// Quake effect state (for maps with quake timed effect)
@@ -66,22 +70,35 @@ type GameMap struct {
 
 	// Evacuate state
 	EvacuateTicks int // >0 means evacuation in progress; countdown in ticks
+
+	// Jukebox state
+	jukeboxTrackID int
+	jukeboxTicks   int
 }
 
 func New(id int, emf *eomap.Emf, cfg *config.Config) *GameMap {
 	m := &GameMap{
-		ID:      id,
-		emf:     emf,
-		cfg:     cfg,
-		players: make(map[int]*MapCharacter),
-		chests:  make(map[[2]int]*Chest),
-		tiles:   make(map[[2]int]eomap.MapTileSpec),
-		warps:   make(map[[2]int]eomap.MapWarp),
+		ID:         id,
+		emf:        emf,
+		cfg:        cfg,
+		players:    make(map[int]*MapCharacter),
+		chests:     make(map[[2]int]*Chest),
+		tiles:      make(map[[2]int]eomap.MapTileSpec),
+		arenaTiles: make(map[[2]int]struct{}),
+		warps:      make(map[[2]int]eomap.MapWarp),
+		openDoors:  make(map[[2]int]int),
 	}
 
 	for _, row := range emf.TileSpecRows {
 		for _, tile := range row.Tiles {
-			m.tiles[[2]int{tile.X, row.Y}] = tile.TileSpec
+			coords := [2]int{tile.X, row.Y}
+			m.tiles[coords] = tile.TileSpec
+			if tile.TileSpec == eomap.MapTileSpec_Arena {
+				m.arenaTiles[coords] = struct{}{}
+			}
+			if tile.TileSpec == eomap.MapTileSpec_Jukebox {
+				m.hasJukebox = true
+			}
 		}
 	}
 
@@ -155,6 +172,9 @@ func (m *GameMap) Walk(playerID int, direction int, coords [2]int) {
 	ch.X = targetX
 	ch.Y = targetY
 	ch.Direction = direction
+	if m.cfg.World.GhostRate > 0 {
+		ch.GhostTicks = m.cfg.World.GhostRate
+	}
 	m.mu.Unlock()
 
 	m.Broadcast(playerID, &server.WalkPlayerServerPacket{
@@ -207,6 +227,75 @@ func (m *GameMap) GetPlayerBus(playerID int) *protocol.PacketBus {
 		return ch.Bus
 	}
 	return nil
+}
+
+// GetPlayerAt returns the player ID at the given coordinates, or 0.
+func (m *GameMap) GetPlayerAt(x, y int) int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, ch := range m.players {
+		if ch.X == x && ch.Y == y {
+			return ch.PlayerID
+		}
+	}
+	return 0
+}
+
+// IsAttackTileBlocked reports whether a projectile/melee line should stop on this tile.
+func (m *GameMap) IsAttackTileBlocked(x, y int) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if x < 0 || y < 0 || x > m.emf.Width || y > m.emf.Height {
+		return true
+	}
+
+	if spec, ok := m.tiles[[2]int{x, y}]; ok {
+		switch spec {
+		case eomap.MapTileSpec_Wall, eomap.MapTileSpec_Edge:
+			return true
+		}
+	}
+
+	if warp, ok := m.warps[[2]int{x, y}]; ok && warp.Door > 0 {
+		_, isOpen := m.openDoors[[2]int{x, y}]
+		return !isOpen
+	}
+
+	return false
+}
+
+// UpdatePlayerVitals updates the tracked HP/TP for a player on the map.
+func (m *GameMap) UpdatePlayerVitals(playerID, hp, tp int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if ch, ok := m.players[playerID]; ok {
+		ch.HP = hp
+		ch.TP = tp
+	}
+}
+
+// IsPkMap reports whether this map allows PK combat.
+func (m *GameMap) IsPkMap() bool {
+	return m.emf != nil && m.emf.Type == eomap.Map_Pk
+}
+
+// HasArena reports whether this map contains arena tiles.
+func (m *GameMap) HasArena() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.arenaTiles) > 0
+}
+
+// PlayerIDs returns the player IDs currently on the map.
+func (m *GameMap) PlayerIDs() []int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	playerIDs := make([]int, 0, len(m.players))
+	for playerID := range m.players {
+		playerIDs = append(playerIDs, playerID)
+	}
+	return playerIDs
 }
 
 // GetNearbyInfo builds the NearbyInfo for all players on the map.
@@ -288,12 +377,47 @@ func (m *GameMap) isBlocked(x, y, excludePlayerID int) bool {
 		}
 	}
 
+	if warp, ok := m.warps[[2]int{x, y}]; ok && warp.Door > 0 {
+		if _, isOpen := m.openDoors[[2]int{x, y}]; !isOpen {
+			return true
+		}
+	}
+
 	for _, ch := range m.players {
 		if ch.PlayerID != excludePlayerID && ch.X == x && ch.Y == y {
 			return true
 		}
 	}
 	return false
+}
+
+func (m *GameMap) OpenDoor(playerID, x, y int) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	ch, ok := m.players[playerID]
+	if !ok {
+		return false
+	}
+	warp, ok := m.warps[[2]int{x, y}]
+	if !ok || warp.Door <= 0 {
+		return false
+	}
+	if abs(ch.X-x) > 1 || abs(ch.Y-y) > 1 {
+		return false
+	}
+	if _, alreadyOpen := m.openDoors[[2]int{x, y}]; alreadyOpen {
+		return false
+	}
+	m.openDoors[[2]int{x, y}] = 0
+	return true
+}
+
+func abs(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 // OnlinePlayerInfo holds basic info about an online player.

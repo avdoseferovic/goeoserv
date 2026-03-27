@@ -32,6 +32,14 @@ func (s *Sequencer) SetStart(start int) {
 	s.start = start
 }
 
+// Reset sets the sequence start value and restarts the counter at 0.
+// Use this when the EO protocol negotiates a fresh sequence window, such as
+// after init or a successful ping/pong reset.
+func (s *Sequencer) Reset(start int) {
+	s.start = start
+	s.counter = 0
+}
+
 // Start returns the current sequence start value.
 func (s *Sequencer) Start() int {
 	return s.start

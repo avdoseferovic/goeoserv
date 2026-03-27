@@ -1,0 +1,11 @@
+services:
+  goeoserv:
+    build:
+      context: .
+    ports:
+      - "8078:8078"
+      - "8079:8079"
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+    restart: unless-stopped

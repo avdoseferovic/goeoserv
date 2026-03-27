@@ -17,6 +17,9 @@ func handleFacePlayer(ctx context.Context, p *player.Player, reader *player.EoRe
 	if p.State != player.StateInGame || p.World == nil {
 		return nil
 	}
+	if p.World.HasCaptcha(p.ID) {
+		return nil
+	}
 
 	var pkt client.FacePlayerClientPacket
 	if err := pkt.Deserialize(reader); err != nil {

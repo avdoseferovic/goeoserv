@@ -32,6 +32,9 @@ func handleTalkLocal(ctx context.Context, p *player.Player, reader *player.EoRea
 		slog.Error("failed to deserialize talk report", "id", p.ID, "err", err)
 		return nil
 	}
+	if p.World.IsMuted(p.ID) {
+		return nil
+	}
 
 	// Check for admin commands
 	if handleCommand(ctx, p, pkt.Message) {
@@ -56,6 +59,9 @@ func handleTalkGlobal(ctx context.Context, p *player.Player, reader *player.EoRe
 		slog.Error("failed to deserialize talk msg", "id", p.ID, "err", err)
 		return nil
 	}
+	if p.World.IsMuted(p.ID) {
+		return nil
+	}
 
 	p.World.BroadcastGlobal(p.ID, &server.TalkMsgServerPacket{
 		PlayerName: p.CharName,
@@ -73,6 +79,9 @@ func handleTalkPrivate(ctx context.Context, p *player.Player, reader *player.EoR
 	var pkt client.TalkTellClientPacket
 	if err := pkt.Deserialize(reader); err != nil {
 		slog.Error("failed to deserialize talk tell", "id", p.ID, "err", err)
+		return nil
+	}
+	if p.World.IsMuted(p.ID) {
 		return nil
 	}
 
@@ -103,6 +112,9 @@ func handleTalkAdmin(ctx context.Context, p *player.Player, reader *player.EoRea
 		slog.Error("failed to deserialize talk admin", "id", p.ID, "err", err)
 		return nil
 	}
+	if p.World.IsMuted(p.ID) {
+		return nil
+	}
 
 	// Admin chat requires admin level >= 1
 	if p.CharAdmin < 1 {
@@ -124,6 +136,9 @@ func handleTalkAnnounce(ctx context.Context, p *player.Player, reader *player.Eo
 	var pkt client.TalkAnnounceClientPacket
 	if err := pkt.Deserialize(reader); err != nil {
 		slog.Error("failed to deserialize talk announce", "id", p.ID, "err", err)
+		return nil
+	}
+	if p.World.IsMuted(p.ID) {
 		return nil
 	}
 
@@ -149,6 +164,9 @@ func handleTalkParty(ctx context.Context, p *player.Player, reader *player.EoRea
 		slog.Error("failed to deserialize talk open", "id", p.ID, "err", err)
 		return nil
 	}
+	if p.World.IsMuted(p.ID) {
+		return nil
+	}
 
 	p.World.BroadcastToParty(p.ID, &server.TalkOpenServerPacket{
 		PlayerId: p.ID,
@@ -166,6 +184,9 @@ func handleTalkGuild(ctx context.Context, p *player.Player, reader *player.EoRea
 	var pkt client.TalkUseClientPacket
 	if err := pkt.Deserialize(reader); err != nil {
 		slog.Error("failed to deserialize talk use", "id", p.ID, "err", err)
+		return nil
+	}
+	if p.World.IsMuted(p.ID) {
 		return nil
 	}
 

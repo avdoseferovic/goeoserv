@@ -70,13 +70,14 @@ func handleInitInit(ctx context.Context, p *player.Player, reader *player.EoRead
 
 	// Generate encryption parameters
 	seq1, seq2, seqStart := protocol.GenerateInitSequenceBytes()
-	p.Bus.Sequencer.SetStart(seqStart)
+	p.Bus.Sequencer.Reset(seqStart)
 	p.Bus.Sequencer.NextSequence() // client consumes sequence slot 0 during init
 
 	challengeResponse := encrypt.ServerVerificationHash(pkt.Challenge)
 
 	p.Bus.ClientEncryptionMultiple = protocol.GenerateSwapMultipleValue()
 	p.Bus.ServerEncryptionMultiple = protocol.GenerateSwapMultipleValue()
+	p.Version = pkt.Version
 	p.State = player.StateInitialized
 
 	reply := &server.InitInitServerPacket{

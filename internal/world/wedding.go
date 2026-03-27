@@ -18,19 +18,20 @@ const (
 	WeddingPriestDoYouPlayer
 	WeddingWaitingForPlayer
 	WeddingPlayerAgrees
+	WeddingFinalizing
 	WeddingPriestAnnounce
 	WeddingDone
 )
 
 // Wedding tracks an active marriage ceremony on a map.
 type Wedding struct {
-	PlayerID  int
-	PartnerID int
-	NpcIndex  int
-	State     WeddingState
-	Ticks     int // countdown for current state
-	MapID     int
-	PlayerBus *protocol.PacketBus
+	PlayerID   int
+	PartnerID  int
+	NpcIndex   int
+	State      WeddingState
+	Ticks      int // countdown for current state
+	MapID      int
+	PlayerBus  *protocol.PacketBus
 	PartnerBus *protocol.PacketBus
 }
 
@@ -101,6 +102,8 @@ func TickWeddings(delayTicks int) {
 
 		case WeddingWaitingForPartner:
 			// Timeout — cancel
+			_ = w.PlayerBus.SendPacket(&server.TalkServerServerPacket{Message: "Wedding ceremony cancelled."})
+			_ = w.PartnerBus.SendPacket(&server.TalkServerServerPacket{Message: "Wedding ceremony cancelled."})
 			EndWedding(mapID)
 
 		case WeddingPartnerAgrees:
@@ -116,6 +119,8 @@ func TickWeddings(delayTicks int) {
 			w.Ticks = 20 * 8
 
 		case WeddingWaitingForPlayer:
+			_ = w.PlayerBus.SendPacket(&server.TalkServerServerPacket{Message: "Wedding ceremony cancelled."})
+			_ = w.PartnerBus.SendPacket(&server.TalkServerServerPacket{Message: "Wedding ceremony cancelled."})
 			EndWedding(mapID)
 
 		case WeddingPlayerAgrees:
@@ -123,8 +128,14 @@ func TickWeddings(delayTicks int) {
 			w.State = WeddingPriestAnnounce
 			w.Ticks = 16 // 2 second celebration delay
 
+		case WeddingFinalizing:
+			// Wait for the priest use handler to finish DB persistence.
+			continue
+
 		case WeddingPriestAnnounce:
 			w.State = WeddingDone
+			_ = w.PlayerBus.SendPacket(&server.TalkServerServerPacket{Message: "The wedding ceremony is complete."})
+			_ = w.PartnerBus.SendPacket(&server.TalkServerServerPacket{Message: "The wedding ceremony is complete."})
 			// Ceremony complete — caller should give rings and update DB
 
 		case WeddingDone:
@@ -161,4 +172,30 @@ func RespondIDo(mapID, playerID int) bool {
 		return true
 	}
 	return false
+}
+
+// ReadyToFinalize reports whether both participants have accepted the wedding.
+func ReadyToFinalize(mapID int) bool {
+	w := activeWeddings[mapID]
+	return w != nil && w.State == WeddingPlayerAgrees
+}
+
+// BeginWeddingFinalization atomically marks a ready wedding as finalizing.
+func BeginWeddingFinalization(mapID int) (int, int, bool) {
+	w := activeWeddings[mapID]
+	if w == nil || w.State != WeddingPlayerAgrees {
+		return 0, 0, false
+	}
+	w.State = WeddingFinalizing
+	w.Ticks = 0
+	return w.PlayerID, w.PartnerID, true
+}
+
+// Participants returns the player and partner ids for an active wedding.
+func Participants(mapID int) (int, int, bool) {
+	w := activeWeddings[mapID]
+	if w == nil {
+		return 0, 0, false
+	}
+	return w.PlayerID, w.PartnerID, true
 }

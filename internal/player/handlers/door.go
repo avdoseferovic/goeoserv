@@ -25,10 +25,12 @@ func handleDoorOpen(ctx context.Context, p *player.Player, reader *player.EoRead
 		return nil
 	}
 
+	if !p.World.OpenDoor(p.MapID, p.ID, pkt.Coords.X, pkt.Coords.Y) {
+		return nil
+	}
+
 	// Broadcast door open to all players on map
-	p.World.BroadcastMap(p.MapID, -1, &server.DoorOpenServerPacket{
-		Coords: pkt.Coords,
-	})
+	p.World.BroadcastMap(p.MapID, -1, &server.DoorOpenServerPacket{Coords: pkt.Coords})
 
 	return nil
 }

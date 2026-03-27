@@ -3,9 +3,12 @@ package config
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
+
+const defaultAccountDelayTimeMinutes = 15
 
 type Config struct {
 	Server       Server       `yaml:"server"`
@@ -33,6 +36,8 @@ type Config struct {
 	Evacuate     Evacuate     `yaml:"evacuate"`
 	Items        Items        `yaml:"items"`
 	AutoPickup   AutoPickup   `yaml:"auto_pickup"`
+	Content      Content      `yaml:"content"`
+	Arenas       Arenas       `yaml:"arenas"`
 }
 
 type Server struct {
@@ -50,7 +55,7 @@ type Server struct {
 	MinVersion          string `yaml:"min_version"`
 	MaxVersion          string `yaml:"max_version"`
 	SaveRate            int    `yaml:"save_rate"`
-AutoAdmin           bool   `yaml:"auto_admin"`
+	AutoAdmin           bool   `yaml:"auto_admin"`
 }
 
 type Database struct {
@@ -79,6 +84,18 @@ type Account struct {
 	RecoveryShowEmail bool `yaml:"recovery_show_email"`
 	RecoveryMaskEmail bool `yaml:"recovery_mask_email"`
 	MaxCharacters     int  `yaml:"max_characters"`
+}
+
+func (a Account) DelayMinutes() int {
+	if a.DelayTime > 0 {
+		return a.DelayTime
+	}
+
+	return defaultAccountDelayTimeMinutes
+}
+
+func (a Account) DelayDuration() time.Duration {
+	return time.Duration(a.DelayMinutes()) * time.Minute
 }
 
 type SMTP struct {
@@ -274,6 +291,83 @@ type Items struct {
 type AutoPickup struct {
 	Enabled bool `yaml:"enabled"`
 	Rate    int  `yaml:"rate"`
+}
+
+type Content struct {
+	ShopFile        string `yaml:"shop_file"`
+	SkillMasterFile string `yaml:"skill_master_file"`
+}
+
+type ArenaCoords struct {
+	X int `yaml:"x"`
+	Y int `yaml:"y"`
+}
+
+type ArenaSpawn struct {
+	From ArenaCoords `yaml:"from"`
+	To   ArenaCoords `yaml:"to"`
+}
+
+type Arena struct {
+	Map              int          `yaml:"map"`
+	CountdownSeconds int          `yaml:"countdown_seconds"`
+	MinPlayers       int          `yaml:"min_players"`
+	MaxPlayers       int          `yaml:"max_players"`
+	QueueSpawns      []ArenaSpawn `yaml:"queue_spawns"`
+}
+
+func (a Arena) CountdownTicks() int {
+	if a.CountdownSeconds <= 0 {
+		return 5 * 8
+	}
+
+	return a.CountdownSeconds * 8
+}
+
+func (a Arena) StartPlayerThreshold() int {
+	if a.MinPlayers <= 0 {
+		return 2
+	}
+
+	return a.MinPlayers
+}
+
+func (a Arena) ParticipantLimit() int {
+	if a.MaxPlayers <= 0 {
+		return 0
+	}
+
+	return a.MaxPlayers
+}
+
+func (a Arena) UsesQueueSpawns() bool {
+	return len(a.QueueSpawns) > 0
+}
+
+func (a Arena) QueueSpawnAt(x, y int) *ArenaSpawn {
+	for i := range a.QueueSpawns {
+		spawn := &a.QueueSpawns[i]
+		if spawn.From.X == x && spawn.From.Y == y {
+			return spawn
+		}
+	}
+
+	return nil
+}
+
+type Arenas struct {
+	Maps []Arena `yaml:"maps"`
+}
+
+func (a Arenas) MapConfig(mapID int) *Arena {
+	for i := range a.Maps {
+		arena := &a.Maps[i]
+		if arena.Map == mapID {
+			return arena
+		}
+	}
+
+	return nil
 }
 
 func Load(path string) (*Config, error) {

@@ -2,7 +2,9 @@ package account
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"log/slog"
 	"strings"
@@ -12,6 +14,13 @@ import (
 	"github.com/ethanmoffat/eolib-go/v3/protocol"
 	"github.com/ethanmoffat/eolib-go/v3/protocol/net/server"
 )
+
+type SessionAccount struct {
+	AccountID int
+	Username  string
+}
+
+const sessionTokenHexLength = 32
 
 // Exists checks if an account with the given username exists.
 func Exists(ctx context.Context, database *db.Database, username string) (bool, error) {
@@ -98,4 +107,60 @@ func GetCharacterList(ctx context.Context, database *db.Database, accountID int)
 	}
 
 	return characters, rows.Err()
+}
+
+func CreateSession(ctx context.Context, database *db.Database, accountID int) (string, error) {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", err
+	}
+	token := hex.EncodeToString(raw[:])
+	if _, err := database.DB().ExecContext(ctx,
+		`DELETE FROM account_sessions WHERE account_id = ? OR datetime(created_at, '+' || ttl || ' minutes') <= datetime('now')`,
+		accountID,
+	); err != nil {
+		return "", err
+	}
+	if _, err := database.DB().ExecContext(ctx,
+		`INSERT INTO account_sessions (account_id, token) VALUES (?, ?)`,
+		accountID, token,
+	); err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+func IsSessionTokenFormatValid(token string) bool {
+	if len(token) != sessionTokenHexLength {
+		return false
+	}
+
+	_, err := hex.DecodeString(token)
+	return err == nil
+}
+
+func GetSessionAccount(ctx context.Context, database *db.Database, token string) (*SessionAccount, error) {
+	if !IsSessionTokenFormatValid(token) {
+		return nil, sql.ErrNoRows
+	}
+
+	if _, err := database.DB().ExecContext(ctx,
+		`DELETE FROM account_sessions WHERE datetime(created_at, '+' || ttl || ' minutes') <= datetime('now')`,
+	); err != nil {
+		return nil, err
+	}
+
+	var session SessionAccount
+	err := database.QueryRow(ctx,
+		`SELECT a.id, a.name
+		 FROM account_sessions s
+		 JOIN accounts a ON a.id = s.account_id
+		 WHERE s.token = ?`,
+		token,
+	).Scan(&session.AccountID, &session.Username)
+	if err != nil {
+		return nil, err
+	}
+
+	return &session, nil
 }

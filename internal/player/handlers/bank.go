@@ -49,7 +49,7 @@ func handleBankDeposit(ctx context.Context, p *player.Player, reader *player.EoR
 	}
 
 	// Validate session to ensure bank was opened
-	if _, ok := p.TakeSessionID(); !ok {
+	if !p.TakeAndValidateSessionID(pkt.SessionId) {
 		return nil
 	}
 
@@ -84,7 +84,7 @@ func handleBankWithdraw(ctx context.Context, p *player.Player, reader *player.Eo
 	}
 
 	// Validate session to ensure bank was opened
-	if _, ok := p.TakeSessionID(); !ok {
+	if !p.TakeAndValidateSessionID(pkt.SessionId) {
 		return nil
 	}
 

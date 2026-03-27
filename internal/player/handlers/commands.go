@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/avdo/goeoserv/internal/formula"
 	"github.com/avdo/goeoserv/internal/gamemap"
@@ -42,6 +43,10 @@ func handleCommand(ctx context.Context, p *player.Player, message string) bool {
 		handleCmdFree(p, args)
 	case "mute":
 		handleCmdMute(p, args)
+	case "unmute":
+		handleCmdUnmute(p, args)
+	case "lookup", "where":
+		handleCmdLookup(p, args)
 	case "warp":
 		handleCmdWarp(p, args)
 	case "warpto":
@@ -58,11 +63,33 @@ func handleCommand(ctx context.Context, p *player.Player, message string) bool {
 		handleCmdInfo(p)
 	case "evacuate":
 		handleCmdEvacuate(p)
+	case "captcha":
+		handleCmdCaptcha(p, args)
 	default:
 		return true // suppress unknown $commands so they don't leak to chat
 	}
 
 	return true
+}
+
+func handleCmdCaptcha(p *player.Player, args []string) {
+	if p.CharAdmin < 1 || len(args) < 1 || p.World == nil {
+		return
+	}
+	reward := 100
+	if len(args) >= 2 {
+		if v, err := strconv.Atoi(args[1]); err == nil && v > 0 {
+			reward = v
+		}
+	}
+	targetID, found := p.World.FindPlayerByName(strings.ToLower(args[0]))
+	if !found {
+		return
+	}
+	if !p.World.StartCaptcha(targetID, reward) {
+		return
+	}
+	slog.Info("admin captcha", "admin", p.CharName, "target", args[0], "reward", reward)
 }
 
 // $kick <name> — requires admin >= 1
@@ -177,12 +204,124 @@ func handleCmdFree(p *player.Player, args []string) {
 	slog.Info("admin free", "admin", p.CharName, "target", targetName)
 }
 
-// $mute <name> — requires admin >= 1 (placeholder - sets a flag)
+// $mute <name> [minutes] — requires admin >= 1
 func handleCmdMute(p *player.Player, args []string) {
-	if p.CharAdmin < 1 || len(args) < 1 {
+	if p.CharAdmin < 1 || len(args) < 1 || p.World == nil {
+		if p.CharAdmin >= 1 {
+			sendMsg(p, "Usage: $mute <name> [minutes]")
+		}
 		return
 	}
-	slog.Info("admin mute", "admin", p.CharName, "target", args[0])
+
+	targetName := strings.ToLower(args[0])
+	minutes := 10
+	if len(args) >= 2 {
+		v, err := strconv.Atoi(args[1])
+		if err != nil || v <= 0 {
+			sendMsg(p, "Mute duration must be a positive number of minutes")
+			return
+		}
+		minutes = v
+	}
+	targetID, found := p.World.FindPlayerByName(targetName)
+	if !found {
+		sendMsg(p, "Player not found")
+		return
+	}
+
+	muteUntil := time.Now().Add(time.Duration(minutes) * time.Minute)
+	targetBus, _ := p.World.GetPlayerBus(targetID).(*protocol.PacketBus)
+	if targetBus != nil {
+		_ = targetBus.SendPacket(&server.TalkServerServerPacket{Message: fmt.Sprintf("You have been muted by %s for %d minute(s)", p.CharName, minutes)})
+	}
+	p.World.SetMutedUntil(targetID, muteUntil)
+	targetDisplayName := p.World.GetPlayerName(targetID)
+	if targetDisplayName == "" {
+		targetDisplayName = args[0]
+	}
+	sendMsg(p, fmt.Sprintf("Muted %s for %d minute(s)", targetDisplayName, minutes))
+	slog.Info("admin mute", "admin", p.CharName, "target", targetName, "minutes", minutes)
+}
+
+// $unmute <name> — requires admin >= 1
+func handleCmdUnmute(p *player.Player, args []string) {
+	if p.CharAdmin < 1 || len(args) < 1 || p.World == nil {
+		if p.CharAdmin >= 1 {
+			sendMsg(p, "Usage: $unmute <name>")
+		}
+		return
+	}
+
+	targetName := strings.ToLower(args[0])
+	targetID, found := p.World.FindPlayerByName(targetName)
+	if !found {
+		sendMsg(p, "Player not found")
+		return
+	}
+	if !p.World.IsMuted(targetID) {
+		sendMsg(p, "Player is not currently muted")
+		return
+	}
+
+	p.World.ClearMuted(targetID)
+	targetDisplayName := p.World.GetPlayerName(targetID)
+	if targetDisplayName == "" {
+		targetDisplayName = args[0]
+	}
+	if targetBus, _ := p.World.GetPlayerBus(targetID).(*protocol.PacketBus); targetBus != nil {
+		_ = targetBus.SendPacket(&server.TalkServerServerPacket{Message: fmt.Sprintf("You have been unmuted by %s", p.CharName)})
+	}
+	sendMsg(p, fmt.Sprintf("Unmuted %s", targetDisplayName))
+	slog.Info("admin unmute", "admin", p.CharName, "target", targetName)
+}
+
+// $lookup <name> — requires admin >= 1
+func handleCmdLookup(p *player.Player, args []string) {
+	if p.CharAdmin < 1 || len(args) < 1 || p.World == nil {
+		if p.CharAdmin >= 1 {
+			sendMsg(p, "Usage: $lookup <name>")
+		}
+		return
+	}
+
+	targetName := strings.ToLower(args[0])
+	targetID, found := p.World.FindPlayerByName(targetName)
+	if !found {
+		sendMsg(p, "Player not found online")
+		return
+	}
+
+	targetDisplayName := p.World.GetPlayerName(targetID)
+	if targetDisplayName == "" {
+		targetDisplayName = args[0]
+	}
+	pos, _ := p.World.GetPlayerPosition(targetID).(*gamemap.PlayerPosition)
+	if pos == nil {
+		sendMsg(p, fmt.Sprintf("%s is online, but location is unavailable", targetDisplayName))
+		return
+	}
+
+	for _, info := range onlinePlayers(p.World) {
+		if info.PlayerID != targetID {
+			continue
+		}
+
+		status := fmt.Sprintf("%s is online - map %d (%d, %d), level %d", targetDisplayName, pos.MapID, pos.X, pos.Y, info.Level)
+		if info.Admin > 0 {
+			status += fmt.Sprintf(", admin %d", info.Admin)
+		}
+		if p.World.IsMuted(targetID) {
+			if until, ok := p.World.GetMutedUntil(targetID); ok {
+				status += ", muted until " + until.Format(time.Kitchen)
+			} else {
+				status += ", muted"
+			}
+		}
+		sendMsg(p, status)
+		return
+	}
+
+	sendMsg(p, fmt.Sprintf("%s is online - map %d (%d, %d)", targetDisplayName, pos.MapID, pos.X, pos.Y))
 }
 
 // $warp <map> [x] [y] — requires admin >= 2
@@ -392,4 +531,10 @@ func handleCmdEvacuate(p *player.Player) {
 
 func sendMsg(p *player.Player, msg string) {
 	_ = p.Bus.SendPacket(&server.TalkServerServerPacket{Message: msg})
+}
+
+func onlinePlayers(world player.WorldInterface) []gamemap.OnlinePlayerInfo {
+	raw := world.GetOnlinePlayers()
+	infos, _ := raw.([]gamemap.OnlinePlayerInfo)
+	return infos
 }

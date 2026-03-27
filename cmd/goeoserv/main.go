@@ -9,8 +9,9 @@ import (
 	"syscall"
 
 	"github.com/avdo/goeoserv/internal/config"
+	"github.com/avdo/goeoserv/internal/content"
 	"github.com/avdo/goeoserv/internal/db"
-pubdata "github.com/avdo/goeoserv/internal/pub"
+	pubdata "github.com/avdo/goeoserv/internal/pub"
 	"github.com/avdo/goeoserv/internal/quest"
 	"github.com/avdo/goeoserv/internal/server"
 	"github.com/avdo/goeoserv/internal/sln"
@@ -45,7 +46,7 @@ func main() {
 	}
 	slog.Info("config loaded")
 
-database, err := db.New(cfg.Database)
+	database, err := db.New(cfg.Database)
 	if err != nil {
 		slog.Error("failed to connect to database", "err", err)
 		os.Exit(1)
@@ -72,6 +73,12 @@ database, err := db.New(cfg.Database)
 	// Load quests
 	if err := quest.LoadQuests("data/quests"); err != nil {
 		slog.Warn("failed to load quests", "err", err)
+	}
+
+	if _, err := content.Load(cfg); err != nil {
+		slog.Warn("failed to load service content", "err", err)
+	} else {
+		slog.Info("service content loaded")
 	}
 
 	// Initialize world and load maps

@@ -23,6 +23,51 @@ type GroundItem struct {
 	ProtectedTicks int // ticks remaining where only DroppedBy can pick up
 }
 
+func (m *GameMap) pickupGroundItemLocked(playerID int, matches func(*GroundItem) bool) *GroundItem {
+	for i, item := range m.groundItems {
+		if !matches(item) {
+			continue
+		}
+		if item.ProtectedTicks > 0 && item.DroppedBy != playerID {
+			continue
+		}
+
+		m.groundItems = append(m.groundItems[:i], m.groundItems[i+1:]...)
+
+		pkt := &server.ItemRemoveServerPacket{ItemIndex: item.UID}
+		for _, ch := range m.players {
+			_ = ch.Bus.SendPacket(pkt)
+		}
+
+		return item
+	}
+
+	return nil
+}
+
+func (m *GameMap) trimGroundItemsLocked(maxItems int) []int {
+	if maxItems <= 0 || len(m.groundItems) <= maxItems {
+		return nil
+	}
+
+	overflowCount := len(m.groundItems) - maxItems
+	removedUIDs := make([]int, 0, overflowCount)
+	for i := 0; i < overflowCount; i++ {
+		if m.groundItems[i] == nil {
+			continue
+		}
+		removedUIDs = append(removedUIDs, m.groundItems[i].UID)
+	}
+
+	copy(m.groundItems, m.groundItems[overflowCount:])
+	for i := len(m.groundItems) - overflowCount; i < len(m.groundItems); i++ {
+		m.groundItems[i] = nil
+	}
+	m.groundItems = m.groundItems[:len(m.groundItems)-overflowCount]
+
+	return removedUIDs
+}
+
 // DropItem adds an item to the map floor. Returns the UID.
 func (m *GameMap) DropItem(itemID, amount, x, y, droppedBy int) int {
 	m.mu.Lock()
@@ -48,14 +93,8 @@ func (m *GameMap) DropItem(itemID, amount, x, y, droppedBy int) int {
 		ProtectedTicks: protectedTicks,
 	}
 
-	// Enforce max items on map — copy to avoid backing array leak
-	if len(m.groundItems) >= m.cfg.Map.MaxItems {
-		copy(m.groundItems, m.groundItems[1:])
-		m.groundItems[len(m.groundItems)-1] = nil
-		m.groundItems = m.groundItems[:len(m.groundItems)-1]
-	}
-
 	m.groundItems = append(m.groundItems, item)
+	removedUIDs := m.trimGroundItemsLocked(m.cfg.Map.MaxItems)
 
 	// Broadcast item appear to nearby players (exclude dropper — they get ItemDropServerPacket)
 	pkt := &server.ItemAddServerPacket{
@@ -65,6 +104,9 @@ func (m *GameMap) DropItem(itemID, amount, x, y, droppedBy int) int {
 		Coords:     eoproto.Coords{X: x, Y: y},
 	}
 	for _, ch := range m.players {
+		for _, removedUID := range removedUIDs {
+			_ = ch.Bus.SendPacket(&server.ItemRemoveServerPacket{ItemIndex: removedUID})
+		}
 		if ch.PlayerID == droppedBy {
 			continue
 		}
@@ -74,30 +116,74 @@ func (m *GameMap) DropItem(itemID, amount, x, y, droppedBy int) int {
 	return uid
 }
 
+func (m *GameMap) tickCleanup() {
+	m.mu.Lock()
+	removedUIDs := m.trimGroundItemsLocked(m.cfg.Map.MaxItems)
+	if len(removedUIDs) == 0 {
+		m.mu.Unlock()
+		return
+	}
+
+	players := make([]*MapCharacter, 0, len(m.players))
+	for _, ch := range m.players {
+		players = append(players, ch)
+	}
+	m.mu.Unlock()
+
+	for _, ch := range players {
+		for _, removedUID := range removedUIDs {
+			_ = ch.Bus.SendPacket(&server.ItemRemoveServerPacket{ItemIndex: removedUID})
+		}
+	}
+}
+
 // PickupItem removes a ground item by UID and returns it. Returns nil if not found
 // or if the item is still protected and playerID is not the owner.
 func (m *GameMap) PickupItem(uid, playerID int) *GroundItem {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	for i, item := range m.groundItems {
-		if item.UID == uid {
-			// Drop protection: only owner can pick up while protected
-			if item.ProtectedTicks > 0 && item.DroppedBy != playerID {
-				return nil
-			}
-			m.groundItems = append(m.groundItems[:i], m.groundItems[i+1:]...)
+	return m.pickupGroundItemLocked(playerID, func(item *GroundItem) bool {
+		return item.UID == uid
+	})
+}
 
-			// Broadcast item removal
-			pkt := &server.ItemRemoveServerPacket{ItemIndex: uid}
-			for _, ch := range m.players {
-				_ = ch.Bus.SendPacket(pkt)
-			}
+// PickupAutoItem removes the first pickup-eligible item on the player's tile.
+func (m *GameMap) PickupAutoItem(playerID int) *GroundItem {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-			return item
+	ch, ok := m.players[playerID]
+	if !ok {
+		return nil
+	}
+
+	return m.pickupGroundItemLocked(playerID, func(item *GroundItem) bool {
+		return item.X == ch.X && item.Y == ch.Y
+	})
+}
+
+// AutoPickupPlayerIDs returns players currently standing on at least one ground item.
+func (m *GameMap) AutoPickupPlayerIDs() []int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if len(m.players) == 0 || len(m.groundItems) == 0 {
+		return nil
+	}
+
+	playerIDs := make([]int, 0, len(m.players))
+	for playerID, ch := range m.players {
+		for _, item := range m.groundItems {
+			if item.X != ch.X || item.Y != ch.Y {
+				continue
+			}
+			playerIDs = append(playerIDs, playerID)
+			break
 		}
 	}
-	return nil
+
+	return playerIDs
 }
 
 // GetGroundItemInfos returns ItemMapInfo for all ground items.

@@ -40,6 +40,18 @@ func (m *GameMap) Tick() {
 
 	// Drop protection decay
 	m.tickDropProtection()
+	m.tickJukebox()
+	if tc%8 == 0 {
+		m.tickCleanup()
+	}
+
+	if m.cfg.World.NPCRecoverRate > 0 && tc%m.cfg.World.NPCRecoverRate == 0 {
+		m.tickNpcRecovery()
+	}
+
+	if m.cfg.World.GhostRate > 0 {
+		m.tickGhost()
+	}
 
 	// Quake effects
 	m.tickQuake()
@@ -206,9 +218,16 @@ func (m *GameMap) tickDrain() {
 
 // tickDoorClose auto-closes any doors (placeholder — door state tracking not yet implemented).
 func (m *GameMap) tickDoorClose() {
-	// Door state tracking would require storing which doors are currently open
-	// and broadcasting DoorCloseServerPacket when they expire.
-	// For now this is a no-op until door state is tracked.
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for coords, ticks := range m.openDoors {
+		ticks++
+		if ticks >= m.cfg.Map.DoorCloseRate {
+			delete(m.openDoors, coords)
+			continue
+		}
+		m.openDoors[coords] = ticks
+	}
 }
 
 // tickDropProtection decrements protection timers on ground items.
@@ -218,6 +237,34 @@ func (m *GameMap) tickDropProtection() {
 	for _, item := range m.groundItems {
 		if item.ProtectedTicks > 0 {
 			item.ProtectedTicks--
+		}
+	}
+}
+
+func (m *GameMap) tickNpcRecovery() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, npc := range m.npcs {
+		if !npc.Alive || npc.MaxHP <= 0 || npc.HP >= npc.MaxHP {
+			continue
+		}
+		recoverAmount := npc.MaxHP / 20
+		if recoverAmount < 1 {
+			recoverAmount = 1
+		}
+		npc.HP += recoverAmount
+		if npc.HP > npc.MaxHP {
+			npc.HP = npc.MaxHP
+		}
+	}
+}
+
+func (m *GameMap) tickGhost() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, ch := range m.players {
+		if ch.GhostTicks > 0 {
+			ch.GhostTicks--
 		}
 	}
 }

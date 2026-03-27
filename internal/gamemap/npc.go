@@ -465,29 +465,67 @@ func (m *GameMap) DamageNpc(npcIndex, playerID, damage int) (int, bool, int) {
 	if !npc.Alive {
 		return 0, false, 0
 	}
+	if damage <= 0 {
+		return 0, false, m.npcHpPercentageLocked(npc)
+	}
+
+	actualDamage := damage
+	if actualDamage > npc.HP {
+		actualDamage = npc.HP
+	}
 
 	// Track opponent with O(1) map lookup; reset bored timer on hit
 	if npc.Opponents == nil {
 		npc.Opponents = make(map[int]*NpcOpponent)
 	}
 	if opp, ok := npc.Opponents[playerID]; ok {
-		opp.DamageDealt += damage
+		opp.DamageDealt += actualDamage
 		opp.BoredTicks = 0 // reset bored on hit
 	} else {
-		npc.Opponents[playerID] = &NpcOpponent{DamageDealt: damage}
+		npc.Opponents[playerID] = &NpcOpponent{DamageDealt: actualDamage}
 	}
 
-	npc.HP -= damage
+	npc.HP -= actualDamage
 	if npc.HP <= 0 {
 		npc.HP = 0
 		npc.Alive = false
 		npc.SpawnTicks = npc.SpawnTime * 8
 		npc.Opponents = nil
-		return damage, true, 0
+		return actualDamage, true, 0
+	}
+
+	return actualDamage, false, m.npcHpPercentageLocked(npc)
+}
+
+func (m *GameMap) GetNpcHpPercentage(npcIndex int) int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if npcIndex < 0 || npcIndex >= len(m.npcs) {
+		return 0
+	}
+
+	npc := m.npcs[npcIndex]
+	if !npc.Alive {
+		return 0
+	}
+
+	return m.npcHpPercentageLocked(npc)
+}
+
+func (m *GameMap) npcHpPercentageLocked(npc *NpcState) int {
+	if npc == nil || npc.MaxHP <= 0 {
+		return 0
 	}
 
 	hpPct := int(float64(npc.HP) / float64(npc.MaxHP) * 100)
-	return damage, false, hpPct
+	if hpPct < 0 {
+		return 0
+	}
+	if hpPct > 100 {
+		return 100
+	}
+	return hpPct
 }
 
 // IsNpcAt checks if an alive NPC is at the given coordinates.
