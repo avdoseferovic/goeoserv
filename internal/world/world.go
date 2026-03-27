@@ -404,6 +404,7 @@ func (w *World) tick() {
 	w.mapMu.RLock()
 	for _, m := range w.maps {
 		m.Tick()
+		w.syncMapPlayerVitals(m)
 		if shouldAutoPickup {
 			w.tickAutoPickup(m)
 		}
@@ -418,6 +419,36 @@ func (w *World) tick() {
 		delayTicks = 160 // default 20 seconds
 	}
 	TickWeddings(delayTicks)
+}
+
+func (w *World) syncMapPlayerVitals(m *gamemap.GameMap) {
+	if m == nil {
+		return
+	}
+
+	for _, vitals := range m.GetPlayerVitalsSnapshot() {
+		target := w.GetPlayerSession(vitals.PlayerID)
+		if target == nil {
+			continue
+		}
+
+		shouldDie := false
+
+		target.Mu.Lock()
+		if target.State != player.StateInGame || target.MapID != m.ID {
+			target.Mu.Unlock()
+			continue
+		}
+
+		target.CharHP = vitals.HP
+		target.CharTP = vitals.TP
+		shouldDie = target.CharHP <= 0
+
+		if shouldDie {
+			target.Die()
+		}
+		target.Mu.Unlock()
+	}
 }
 
 func (w *World) TryStartJukebox(mapID, trackID int) bool {

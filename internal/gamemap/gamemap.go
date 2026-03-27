@@ -35,6 +35,13 @@ type MapCharacter struct {
 	GhostTicks    int
 }
 
+// PlayerVitalsSnapshot captures a player's tracked map vitals.
+type PlayerVitalsSnapshot struct {
+	PlayerID int
+	HP       int
+	TP       int
+}
+
 // WarpDest stores a pending warp destination.
 type WarpDest struct {
 	MapID int
@@ -273,6 +280,23 @@ func (m *GameMap) UpdatePlayerVitals(playerID, hp, tp int) {
 		ch.HP = hp
 		ch.TP = tp
 	}
+}
+
+// GetPlayerVitalsSnapshot returns the current tracked vitals for players on the map.
+func (m *GameMap) GetPlayerVitalsSnapshot() []PlayerVitalsSnapshot {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	snapshots := make([]PlayerVitalsSnapshot, 0, len(m.players))
+	for _, ch := range m.players {
+		snapshots = append(snapshots, PlayerVitalsSnapshot{
+			PlayerID: ch.PlayerID,
+			HP:       ch.HP,
+			TP:       ch.TP,
+		})
+	}
+
+	return snapshots
 }
 
 // IsPkMap reports whether this map allows PK combat.

@@ -3,9 +3,11 @@ package gamemap
 import (
 	"math/rand/v2"
 
+	pubdata "github.com/avdo/goeoserv/internal/pub"
 	eoproto "github.com/ethanmoffat/eolib-go/v3/protocol"
 	eomap "github.com/ethanmoffat/eolib-go/v3/protocol/map"
 	"github.com/ethanmoffat/eolib-go/v3/protocol/net/server"
+	eopub "github.com/ethanmoffat/eolib-go/v3/protocol/pub"
 )
 
 // NpcState represents a live NPC instance on a map.
@@ -257,9 +259,13 @@ func (m *GameMap) TickNPCs(actRate int) {
 			}
 		}
 
-		if len(npc.Opponents) > 0 {
-			// Chase closest opponent within chase distance
-			m.npcChase(npc)
+		if target, _ := m.npcClosestOpponentLocked(npc); target == nil {
+			m.npcAcquireAggroLocked(npc)
+		}
+
+		if target, _ := m.npcClosestOpponentLocked(npc); target != nil {
+			// Attack if adjacent, otherwise chase closest opponent within chase distance.
+			m.npcActAgainstOpponent(npc)
 		} else {
 			// Random idle movement (25% chance)
 			if rand.IntN(4) == 0 {
@@ -271,40 +277,126 @@ func (m *GameMap) TickNPCs(actRate int) {
 	}
 }
 
-// npcChase moves an NPC toward its closest opponent within chase distance.
-func (m *GameMap) npcChase(npc *NpcState) {
+func (m *GameMap) npcAcquireAggroLocked(npc *NpcState) {
+	if npc == nil {
+		return
+	}
+
+	npcRec := pubdata.GetNpc(npc.ID)
+	if npcRec == nil || npcRec.Type != eopub.Npc_Aggressive {
+		return
+	}
+
 	chaseDist := m.cfg.NPCs.ChaseDistance
 	if chaseDist <= 0 {
 		return
 	}
 
-	// Find closest opponent
-	bestDist := chaseDist + 1
-	bestX, bestY := 0, 0
-	for pid := range npc.Opponents {
-		ch, ok := m.players[pid]
-		if !ok {
+	for _, ch := range m.players {
+		if ch.HP <= 0 || npcDistance(npc.X, npc.Y, ch.X, ch.Y) > chaseDist {
 			continue
 		}
-		dx := npc.X - ch.X
-		dy := npc.Y - ch.Y
-		if dx < 0 {
-			dx = -dx
+
+		if npc.Opponents == nil {
+			npc.Opponents = make(map[int]*NpcOpponent)
 		}
-		if dy < 0 {
-			dy = -dy
-		}
-		dist := max(dx, dy)
-		if dist < bestDist {
-			bestDist = dist
-			bestX = ch.X
-			bestY = ch.Y
-		}
+		npc.Opponents[ch.PlayerID] = &NpcOpponent{}
+	}
+}
+
+func (m *GameMap) npcActAgainstOpponent(npc *NpcState) {
+	target, bestDist := m.npcClosestOpponentLocked(npc)
+	if target == nil {
+		return
 	}
 
-	if bestDist > chaseDist {
-		return // no opponent in range
+	dir := npcDirectionToward(npc.X, npc.Y, target.X, target.Y)
+	if dir >= 0 {
+		npc.Direction = dir
 	}
+
+	if bestDist <= 1 {
+		attack, ok := m.npcAttackLocked(npc, target)
+		if ok {
+			m.broadcastNpcAttack(attack)
+		}
+		return
+	}
+
+	m.npcChase(npc)
+}
+
+func (m *GameMap) npcClosestOpponentLocked(npc *NpcState) (*MapCharacter, int) {
+	chaseDist := m.cfg.NPCs.ChaseDistance
+	if npc == nil || chaseDist <= 0 {
+		return nil, 0
+	}
+
+	bestDist := chaseDist + 1
+	var bestTarget *MapCharacter
+	for pid := range npc.Opponents {
+		ch, ok := m.players[pid]
+		if !ok || ch.HP <= 0 {
+			continue
+		}
+
+		dist := npcDistance(npc.X, npc.Y, ch.X, ch.Y)
+		if dist >= bestDist {
+			continue
+		}
+
+		bestDist = dist
+		bestTarget = ch
+	}
+
+	if bestTarget == nil || bestDist > chaseDist {
+		return nil, 0
+	}
+
+	return bestTarget, bestDist
+}
+
+func (m *GameMap) npcAttackLocked(npc *NpcState, target *MapCharacter) (server.NpcUpdateAttack, bool) {
+	if npc == nil || target == nil || !npc.Alive || target.HP <= 0 {
+		return server.NpcUpdateAttack{}, false
+	}
+
+	damage := npcDamageAmount(npc.ID)
+	if damage <= 0 {
+		return server.NpcUpdateAttack{}, false
+	}
+
+	if damage > target.HP {
+		damage = target.HP
+	}
+
+	target.HP -= damage
+	if target.HP < 0 {
+		target.HP = 0
+	}
+
+	killed := server.PlayerKilledState_Alive
+	if target.HP == 0 {
+		killed = server.PlayerKilledState_Killed
+	}
+
+	return server.NpcUpdateAttack{
+		NpcIndex:     npc.Index,
+		Killed:       killed,
+		Direction:    eoproto.Direction(npc.Direction),
+		PlayerId:     target.PlayerID,
+		Damage:       damage,
+		HpPercentage: playerHpPercentage(target.HP, target.MaxHP),
+	}, true
+}
+
+// npcChase moves an NPC toward its closest opponent within chase distance.
+func (m *GameMap) npcChase(npc *NpcState) {
+	target, _ := m.npcClosestOpponentLocked(npc)
+	if target == nil {
+		return
+	}
+	bestX, bestY := target.X, target.Y
 
 	// Move one tile toward target
 	dir := -1
@@ -426,30 +518,121 @@ func (m *GameMap) isTileOccupied(x, y int) bool {
 }
 
 func (m *GameMap) broadcastNpcWalk(npc *NpcState) {
-	pkt := &server.NpcPlayerServerPacket{
-		Positions: []server.NpcUpdatePosition{{
+	for _, ch := range m.players {
+		_ = ch.Bus.SendPacket(newNpcPlayerPacket(ch, []server.NpcUpdatePosition{{
 			NpcIndex:  npc.Index,
 			Coords:    eoproto.Coords{X: npc.X, Y: npc.Y},
 			Direction: eoproto.Direction(npc.Direction),
-		}},
-	}
-	for _, ch := range m.players {
-		_ = ch.Bus.SendPacket(pkt)
+		}}, nil, nil))
 	}
 }
 
 func (m *GameMap) broadcastNpcAppear(npc *NpcState) {
 	// Send via NPC_PLAYER with position update
-	pkt := &server.NpcPlayerServerPacket{
-		Positions: []server.NpcUpdatePosition{{
+	for _, ch := range m.players {
+		_ = ch.Bus.SendPacket(newNpcPlayerPacket(ch, []server.NpcUpdatePosition{{
 			NpcIndex:  npc.Index,
 			Coords:    eoproto.Coords{X: npc.X, Y: npc.Y},
 			Direction: eoproto.Direction(npc.Direction),
-		}},
+		}}, nil, nil))
 	}
+}
+
+func (m *GameMap) broadcastNpcAttack(attack server.NpcUpdateAttack) {
 	for _, ch := range m.players {
-		_ = ch.Bus.SendPacket(pkt)
+		_ = ch.Bus.SendPacket(newNpcPlayerPacket(ch, nil, []server.NpcUpdateAttack{attack}, nil))
 	}
+}
+
+func newNpcPlayerPacket(
+	player *MapCharacter,
+	positions []server.NpcUpdatePosition,
+	attacks []server.NpcUpdateAttack,
+	chats []server.NpcUpdateChat,
+) *server.NpcPlayerServerPacket {
+	pkt := &server.NpcPlayerServerPacket{
+		Positions: positions,
+		Attacks:   attacks,
+		Chats:     chats,
+	}
+
+	if !npcAttackTargetsPlayer(attacks, player.PlayerID) {
+		return pkt
+	}
+
+	hp, tp := player.HP, player.TP
+	pkt.Hp = &hp
+	pkt.Tp = &tp
+	return pkt
+}
+
+func npcAttackTargetsPlayer(attacks []server.NpcUpdateAttack, playerID int) bool {
+	for _, attack := range attacks {
+		if attack.PlayerId == playerID {
+			return true
+		}
+	}
+
+	return false
+}
+
+func npcDirectionToward(fromX, fromY, toX, toY int) int {
+	if toY > fromY {
+		return 0
+	}
+	if toX < fromX {
+		return 1
+	}
+	if toY < fromY {
+		return 2
+	}
+	if toX > fromX {
+		return 3
+	}
+	return -1
+}
+
+func npcDistance(fromX, fromY, toX, toY int) int {
+	dx := fromX - toX
+	if dx < 0 {
+		dx = -dx
+	}
+	dy := fromY - toY
+	if dy < 0 {
+		dy = -dy
+	}
+	return max(dx, dy)
+}
+
+func npcDamageAmount(npcID int) int {
+	npcRec := pubdata.GetNpc(npcID)
+	if npcRec == nil {
+		return 1
+	}
+
+	damage := npcRec.MinDamage
+	if npcRec.MaxDamage > npcRec.MinDamage {
+		damage += rand.IntN(npcRec.MaxDamage - npcRec.MinDamage + 1)
+	}
+	if damage < 1 {
+		return 1
+	}
+	return damage
+}
+
+func playerHpPercentage(currentHP, maxHP int) int {
+	if maxHP <= 0 {
+		return 0
+	}
+
+	hpPct := currentHP * 100 / maxHP
+	if hpPct < 0 {
+		return 0
+	}
+	if hpPct > 100 {
+		return 100
+	}
+	return hpPct
 }
 
 // DamageNpc applies damage to an NPC. Returns (actualDamage, killed, hpPercentage).
