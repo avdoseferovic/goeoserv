@@ -39,7 +39,7 @@ func main() {
 		Level: slog.LevelDebug,
 	})))
 
-	cfg, err := config.Load("config/config.yaml")
+	cfg, err := config.Load("config")
 	if err != nil {
 		slog.Error("failed to load config", "err", err)
 		os.Exit(1)

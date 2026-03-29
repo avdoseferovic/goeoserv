@@ -1,0 +1,430 @@
+package handlers
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/avdo/goeoserv/internal/formula"
+	"github.com/avdo/goeoserv/internal/gamemap"
+	"github.com/avdo/goeoserv/internal/player"
+	"github.com/avdo/goeoserv/internal/protocol"
+	pubdata "github.com/avdo/goeoserv/internal/pub"
+	eonet "github.com/ethanmoffat/eolib-go/v3/protocol/net"
+	"github.com/ethanmoffat/eolib-go/v3/protocol/net/server"
+)
+
+func handleCmdCaptcha(p *player.Player, args []string) {
+	if p.CharAdmin < 1 || len(args) < 1 || p.World == nil {
+		return
+	}
+	reward := 100
+	if len(args) >= 2 {
+		if v, err := strconv.Atoi(args[1]); err == nil && v > 0 {
+			reward = v
+		}
+	}
+	targetID, found := p.World.FindPlayerByName(strings.ToLower(args[0]))
+	if !found {
+		return
+	}
+	if !p.World.StartCaptcha(targetID, reward) {
+		return
+	}
+	slog.Info("admin captcha", "admin", p.CharName, "target", args[0], "reward", reward)
+}
+
+// $kick <name> — requires admin >= 1
+func handleCmdKick(p *player.Player, args []string) {
+	if p.CharAdmin < 1 || len(args) < 1 {
+		return
+	}
+
+	targetName := strings.ToLower(args[0])
+	if p.World == nil {
+		return
+	}
+
+	targetID, found := p.World.FindPlayerByName(targetName)
+	if !found {
+		return
+	}
+
+	p.World.SendToPlayer(targetID, &server.TalkServerServerPacket{
+		Message: "You have been kicked by " + p.CharName,
+	})
+
+	slog.Info("admin kick", "admin", p.CharName, "target", targetName)
+}
+
+// $ban <name> [duration_minutes] — requires admin >= 2
+func handleCmdBan(ctx context.Context, p *player.Player, args []string) {
+	if p.CharAdmin < 2 || len(args) < 1 {
+		return
+	}
+
+	targetName := strings.ToLower(args[0])
+	duration := 0 // permanent by default
+	if len(args) >= 2 {
+		duration, _ = strconv.Atoi(args[1])
+	}
+
+	var accountID int
+	err := p.DB.QueryRow(ctx,
+		`SELECT account_id FROM characters WHERE name = ?`, targetName).Scan(&accountID)
+	if err != nil {
+		return
+	}
+
+	_ = p.DB.Execute(ctx,
+		`INSERT INTO bans (account_id, duration) VALUES (?, ?)`, accountID, duration)
+
+	slog.Info("admin ban", "admin", p.CharName, "target", targetName, "duration", duration)
+}
+
+// $jail <name> — requires admin >= 1
+func handleCmdJail(p *player.Player, args []string) {
+	if p.CharAdmin < 1 || len(args) < 1 || p.World == nil {
+		return
+	}
+
+	targetName := strings.ToLower(args[0])
+	targetID, found := p.World.FindPlayerByName(targetName)
+	if !found {
+		return
+	}
+
+	jailMap := p.Cfg.Jail.Map
+	jailX := p.Cfg.Jail.X
+	jailY := p.Cfg.Jail.Y
+	if jailMap <= 0 {
+		return
+	}
+
+	p.World.SendToPlayer(targetID, &server.TalkServerServerPacket{
+		Message: "You have been jailed by " + p.CharName,
+	})
+
+	p.World.SendToPlayer(targetID, &server.WarpRequestServerPacket{
+		WarpType:     server.Warp_Local,
+		MapId:        jailMap,
+		WarpTypeData: &server.WarpRequestWarpTypeDataMapSwitch{},
+	})
+	_ = jailX
+	_ = jailY
+
+	slog.Info("admin jail", "admin", p.CharName, "target", targetName)
+}
+
+// $free <name> — requires admin >= 1
+func handleCmdFree(p *player.Player, args []string) {
+	if p.CharAdmin < 1 || len(args) < 1 || p.World == nil {
+		return
+	}
+
+	targetName := strings.ToLower(args[0])
+	targetID, found := p.World.FindPlayerByName(targetName)
+	if !found {
+		return
+	}
+
+	freeMap := p.Cfg.Jail.FreeMap
+	if freeMap <= 0 {
+		freeMap = p.Cfg.Rescue.Map
+	}
+
+	p.World.SendToPlayer(targetID, &server.WarpRequestServerPacket{
+		WarpType:     server.Warp_Local,
+		MapId:        freeMap,
+		WarpTypeData: &server.WarpRequestWarpTypeDataMapSwitch{},
+	})
+
+	slog.Info("admin free", "admin", p.CharName, "target", targetName)
+}
+
+// $mute <name> [minutes] — requires admin >= 1
+func handleCmdMute(p *player.Player, args []string) {
+	if p.CharAdmin < 1 || len(args) < 1 || p.World == nil {
+		if p.CharAdmin >= 1 {
+			sendMsg(p, "Usage: $mute <name> [minutes]")
+		}
+		return
+	}
+
+	targetName := strings.ToLower(args[0])
+	minutes := 10
+	if len(args) >= 2 {
+		v, err := strconv.Atoi(args[1])
+		if err != nil || v <= 0 {
+			sendMsg(p, "Mute duration must be a positive number of minutes")
+			return
+		}
+		minutes = v
+	}
+	targetID, found := p.World.FindPlayerByName(targetName)
+	if !found {
+		sendMsg(p, "Player not found")
+		return
+	}
+
+	muteUntil := time.Now().Add(time.Duration(minutes) * time.Minute)
+	targetBus, _ := p.World.GetPlayerBus(targetID).(*protocol.PacketBus)
+	if targetBus != nil {
+		_ = targetBus.SendPacket(&server.TalkServerServerPacket{Message: fmt.Sprintf("You have been muted by %s for %d minute(s)", p.CharName, minutes)})
+	}
+	p.World.SetMutedUntil(targetID, muteUntil)
+	targetDisplayName := p.World.GetPlayerName(targetID)
+	if targetDisplayName == "" {
+		targetDisplayName = args[0]
+	}
+	sendMsg(p, fmt.Sprintf("Muted %s for %d minute(s)", targetDisplayName, minutes))
+	slog.Info("admin mute", "admin", p.CharName, "target", targetName, "minutes", minutes)
+}
+
+// $unmute <name> — requires admin >= 1
+func handleCmdUnmute(p *player.Player, args []string) {
+	if p.CharAdmin < 1 || len(args) < 1 || p.World == nil {
+		if p.CharAdmin >= 1 {
+			sendMsg(p, "Usage: $unmute <name>")
+		}
+		return
+	}
+
+	targetName := strings.ToLower(args[0])
+	targetID, found := p.World.FindPlayerByName(targetName)
+	if !found {
+		sendMsg(p, "Player not found")
+		return
+	}
+	if !p.World.IsMuted(targetID) {
+		sendMsg(p, "Player is not currently muted")
+		return
+	}
+
+	p.World.ClearMuted(targetID)
+	targetDisplayName := p.World.GetPlayerName(targetID)
+	if targetDisplayName == "" {
+		targetDisplayName = args[0]
+	}
+	if targetBus, _ := p.World.GetPlayerBus(targetID).(*protocol.PacketBus); targetBus != nil {
+		_ = targetBus.SendPacket(&server.TalkServerServerPacket{Message: fmt.Sprintf("You have been unmuted by %s", p.CharName)})
+	}
+	sendMsg(p, fmt.Sprintf("Unmuted %s", targetDisplayName))
+	slog.Info("admin unmute", "admin", p.CharName, "target", targetName)
+}
+
+// $lookup <name> — requires admin >= 1
+func handleCmdLookup(p *player.Player, args []string) {
+	if p.CharAdmin < 1 || len(args) < 1 || p.World == nil {
+		if p.CharAdmin >= 1 {
+			sendMsg(p, "Usage: $lookup <name>")
+		}
+		return
+	}
+
+	targetName := strings.ToLower(args[0])
+	targetID, found := p.World.FindPlayerByName(targetName)
+	if !found {
+		sendMsg(p, "Player not found online")
+		return
+	}
+
+	targetDisplayName := p.World.GetPlayerName(targetID)
+	if targetDisplayName == "" {
+		targetDisplayName = args[0]
+	}
+	pos, _ := p.World.GetPlayerPosition(targetID).(*gamemap.PlayerPosition)
+	if pos == nil {
+		sendMsg(p, fmt.Sprintf("%s is online, but location is unavailable", targetDisplayName))
+		return
+	}
+
+	for _, info := range onlinePlayers(p.World) {
+		if info.PlayerID != targetID {
+			continue
+		}
+
+		status := fmt.Sprintf("%s is online - map %d (%d, %d), level %d", targetDisplayName, pos.MapID, pos.X, pos.Y, info.Level)
+		if info.Admin > 0 {
+			status += fmt.Sprintf(", admin %d", info.Admin)
+		}
+		if p.World.IsMuted(targetID) {
+			if until, ok := p.World.GetMutedUntil(targetID); ok {
+				status += ", muted until " + until.Format(time.Kitchen)
+			} else {
+				status += ", muted"
+			}
+		}
+		sendMsg(p, status)
+		return
+	}
+
+	sendMsg(p, fmt.Sprintf("%s is online - map %d (%d, %d)", targetDisplayName, pos.MapID, pos.X, pos.Y))
+}
+
+// $warp <map> [x] [y] — requires admin >= 2
+func handleCmdWarp(p *player.Player, args []string) {
+	if p.CharAdmin < 2 || len(args) < 1 || p.World == nil {
+		return
+	}
+
+	mapID, _ := strconv.Atoi(args[0])
+	x, y := 0, 0
+	if len(args) >= 3 {
+		x, _ = strconv.Atoi(args[1])
+		y, _ = strconv.Atoi(args[2])
+	}
+
+	if mapID <= 0 {
+		return
+	}
+
+	p.PendingWarp = &player.PendingWarp{MapID: mapID, X: x, Y: y}
+	_ = p.Bus.SendPacket(&server.WarpRequestServerPacket{
+		WarpType:     server.Warp_Local,
+		MapId:        mapID,
+		WarpTypeData: &server.WarpRequestWarpTypeDataMapSwitch{},
+	})
+
+	slog.Info("admin warp", "admin", p.CharName, "map", mapID, "x", x, "y", y)
+}
+
+// $warpto <name> — warp yourself to a player. Requires admin >= 1.
+func handleCmdWarpTo(p *player.Player, args []string) {
+	if p.CharAdmin < 1 || len(args) < 1 || p.World == nil {
+		return
+	}
+
+	targetName := strings.ToLower(args[0])
+	targetID, found := p.World.FindPlayerByName(targetName)
+	if !found {
+		return
+	}
+
+	pos, _ := p.World.GetPlayerPosition(targetID).(*gamemap.PlayerPosition)
+	if pos == nil {
+		return
+	}
+
+	p.PendingWarp = &player.PendingWarp{MapID: pos.MapID, X: pos.X, Y: pos.Y}
+	_ = p.Bus.SendPacket(&server.WarpRequestServerPacket{
+		WarpType:     server.Warp_Local,
+		MapId:        pos.MapID,
+		WarpTypeData: &server.WarpRequestWarpTypeDataMapSwitch{},
+	})
+
+	slog.Info("admin warpto", "admin", p.CharName, "target", targetName)
+}
+
+// $warptome <name> — warp a player to you. Requires admin >= 1.
+func handleCmdWarpToMe(p *player.Player, args []string) {
+	if p.CharAdmin < 1 || len(args) < 1 || p.World == nil {
+		return
+	}
+
+	targetName := strings.ToLower(args[0])
+	targetID, found := p.World.FindPlayerByName(targetName)
+	if !found {
+		return
+	}
+
+	targetBus, _ := p.World.GetPlayerBus(targetID).(*protocol.PacketBus)
+	if targetBus == nil {
+		return
+	}
+
+	pos, _ := p.World.GetPlayerPosition(targetID).(*gamemap.PlayerPosition)
+	if pos == nil {
+		return
+	}
+
+	p.World.SetPendingWarp(pos.MapID, targetID, p.MapID, p.CharX, p.CharY)
+	_ = targetBus.SendPacket(&server.WarpRequestServerPacket{
+		WarpType:     server.Warp_Local,
+		MapId:        p.MapID,
+		WarpTypeData: &server.WarpRequestWarpTypeDataMapSwitch{},
+	})
+
+	slog.Info("admin warptome", "admin", p.CharName, "target", targetName)
+}
+
+// $setlevel <level> — requires admin >= 2
+func handleCmdSetLevel(p *player.Player, args []string) {
+	if p.CharAdmin < 2 || len(args) < 1 {
+		return
+	}
+
+	level, _ := strconv.Atoi(args[0])
+	if level < 1 || level > 200 {
+		return
+	}
+
+	p.CharLevel = level
+	p.CharExp = formula.ExpForLevel(level)
+	p.CalculateStats()
+	p.CharHP = p.CharMaxHP
+	p.CharTP = p.CharMaxTP
+
+	_ = p.Bus.SendPacket(&server.RecoverReplyServerPacket{
+		Experience:  p.CharExp,
+		Karma:       0,
+		LevelUp:     &level,
+		StatPoints:  &p.StatPoints,
+		SkillPoints: &p.SkillPoints,
+	})
+
+	sendMsg(p, fmt.Sprintf("Level set to %d", level))
+	slog.Info("admin setlevel", "admin", p.CharName, "level", level)
+}
+
+// $item <id> [amount] — requires admin >= 2
+func handleCmdItem(p *player.Player, args []string) {
+	if p.CharAdmin < 2 || len(args) < 1 {
+		return
+	}
+
+	itemID, _ := strconv.Atoi(args[0])
+	amount := 1
+	if len(args) >= 2 {
+		amount, _ = strconv.Atoi(args[1])
+	}
+	if itemID <= 0 || amount <= 0 {
+		return
+	}
+
+	rec := pubdata.GetItem(itemID)
+	if rec == nil {
+		sendMsg(p, "Item not found")
+		return
+	}
+
+	p.Inventory[itemID] += amount
+	p.CalculateStats()
+
+	_ = p.Bus.SendPacket(&server.ItemGetServerPacket{
+		TakenItemIndex: 0,
+		TakenItem:      eonet.ThreeItem{Id: itemID, Amount: p.Inventory[itemID]},
+		Weight:         eonet.Weight{Current: p.Weight, Max: p.MaxWeight},
+	})
+
+	sendMsg(p, fmt.Sprintf("Gave %dx %s (ID %d)", amount, rec.Name, itemID))
+	slog.Info("admin item", "admin", p.CharName, "item", itemID, "amount", amount)
+}
+
+// $evacuate — requires admin >= 2
+func handleCmdEvacuate(p *player.Player) {
+	if p.CharAdmin < 2 || p.World == nil {
+		return
+	}
+
+	timerTicks := p.Cfg.Evacuate.TimerSeconds * 8 // convert seconds to ticks
+	if timerTicks <= 0 {
+		timerTicks = 480 // default 60 seconds
+	}
+	p.World.StartEvacuate(p.MapID, timerTicks)
+
+	slog.Info("admin evacuate", "admin", p.CharName, "map", p.MapID)
+}
