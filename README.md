@@ -9,9 +9,10 @@ A server emulator for Endless Online developed in the Go programming language.
 
 ```bash
 make build
-./bin/geoserv --install   # this command will create necessary database tables
-./bin/geoserv              # start your geoserv server.
+./bin/geoserv
 ```
+
+Pending database migrations are applied automatically on startup.
 
 ## Configuration
 

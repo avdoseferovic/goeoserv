@@ -1,0 +1,13 @@
+DROP TABLE IF EXISTS `history`;
+DROP TABLE IF EXISTS `character_auto_pickup`;
+DROP TABLE IF EXISTS `board_posts`;
+DROP TABLE IF EXISTS `character_spells`;
+DROP TABLE IF EXISTS `character_quest_progress`;
+DROP TABLE IF EXISTS `character_inventory`;
+DROP TABLE IF EXISTS `character_bank`;
+DROP TABLE IF EXISTS `characters`;
+DROP TABLE IF EXISTS `guild_ranks`;
+DROP TABLE IF EXISTS `guilds`;
+DROP TABLE IF EXISTS `bans`;
+DROP TABLE IF EXISTS `account_sessions`;
+DROP TABLE IF EXISTS `accounts`;

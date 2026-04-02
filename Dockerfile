@@ -16,7 +16,6 @@ RUN useradd --create-home --shell /usr/sbin/nologin geoserv
 
 COPY --from=build /out/geoserv ./geoserv
 COPY config ./config
-COPY sql ./sql
 
 RUN mkdir -p /app/data && chown -R geoserv:geoserv /app
 

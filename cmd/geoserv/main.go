@@ -54,16 +54,11 @@ func main() {
 	defer database.Close() //nolint:errcheck
 	slog.Info("database connected", "driver", cfg.Database.Driver)
 
-	// Handle --install flag
-	for _, arg := range os.Args[1:] {
-		if arg == "--install" {
-			if err := installDB(database, cfg.Database.Driver); err != nil {
-				slog.Error("failed to install database", "err", err)
-				os.Exit(1)
-			}
-			slog.Info("database installed successfully")
-		}
+	if err := database.Migrate(); err != nil {
+		slog.Error("failed to apply database migrations", "err", err)
+		os.Exit(1)
 	}
+	slog.Info("database migrations applied")
 
 	// Load pub files (EIF/ENF/ESF/ECF)
 	if err := pubdata.LoadAll(); err != nil {
@@ -117,23 +112,4 @@ func main() {
 	cancel()
 	srv.Shutdown()
 	slog.Info("server stopped")
-}
-
-func installDB(database *db.Database, driver string) error {
-	var filename string
-	switch driver {
-	case "mysql":
-		filename = "sql/install_mysql.sql"
-	case "sqlite":
-		filename = "sql/install_sqlite.sql"
-	default:
-		return fmt.Errorf("unsupported driver: %s", driver)
-	}
-
-	script, err := os.ReadFile(filename)
-	if err != nil {
-		return fmt.Errorf("reading %s: %w", filename, err)
-	}
-
-	return database.Execute(context.Background(), string(script))
 }
