@@ -115,8 +115,10 @@ func CreateSession(ctx context.Context, database *db.Database, accountID int) (s
 		return "", err
 	}
 	token := hex.EncodeToString(raw[:])
+	expiryExpr := database.AddMinutesExpr("created_at", "ttl")
+	nowExpr := database.CurrentTimestampExpr()
 	if _, err := database.DB().ExecContext(ctx,
-		`DELETE FROM account_sessions WHERE account_id = ? OR datetime(created_at, '+' || ttl || ' minutes') <= datetime('now')`,
+		`DELETE FROM account_sessions WHERE account_id = ? OR `+expiryExpr+` <= `+nowExpr,
 		accountID,
 	); err != nil {
 		return "", err
@@ -144,8 +146,10 @@ func GetSessionAccount(ctx context.Context, database *db.Database, token string)
 		return nil, sql.ErrNoRows
 	}
 
+	expiryExpr := database.AddMinutesExpr("created_at", "ttl")
+	nowExpr := database.CurrentTimestampExpr()
 	if _, err := database.DB().ExecContext(ctx,
-		`DELETE FROM account_sessions WHERE datetime(created_at, '+' || ttl || ' minutes') <= datetime('now')`,
+		`DELETE FROM account_sessions WHERE `+expiryExpr+` <= `+nowExpr,
 	); err != nil {
 		return nil, err
 	}

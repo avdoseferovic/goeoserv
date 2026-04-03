@@ -74,10 +74,10 @@ func handleLockerAdd(ctx context.Context, p *player.Player, reader *player.EoRea
 		return nil
 	}
 
+	upsertClause := p.DB.AdditiveUpsertClause([]string{"character_id", "item_id"}, "quantity")
 	err := p.DB.Execute(ctx,
-		`INSERT INTO character_bank (character_id, item_id, quantity) VALUES (?, ?, ?)
-		ON CONFLICT(character_id, item_id) DO UPDATE SET quantity = quantity + ?`,
-		*p.CharacterID, itemID, amount, amount)
+		`INSERT INTO character_bank (character_id, item_id, quantity) VALUES (?, ?, ?) `+upsertClause,
+		*p.CharacterID, itemID, amount)
 	if err != nil {
 		slog.Error("locker add db failed", "id", p.ID, "err", err)
 		p.AddItem(itemID, amount)

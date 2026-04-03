@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/avdoseferovic/geoserv/internal/config"
@@ -78,4 +79,36 @@ func (d *Database) BeginTx(ctx context.Context) (*sql.Tx, error) {
 
 func (d *Database) DB() *sql.DB {
 	return d.db
+}
+
+func (d *Database) CurrentTimestampExpr() string {
+	switch d.driver {
+	case "mysql":
+		return "CURRENT_TIMESTAMP"
+	default:
+		return "datetime('now')"
+	}
+}
+
+func (d *Database) AddMinutesExpr(timestampExpr, minutesExpr string) string {
+	switch d.driver {
+	case "mysql":
+		return fmt.Sprintf("DATE_ADD(%s, INTERVAL %s MINUTE)", timestampExpr, minutesExpr)
+	default:
+		return fmt.Sprintf("datetime(%s, '+' || %s || ' minutes')", timestampExpr, minutesExpr)
+	}
+}
+
+func (d *Database) AdditiveUpsertClause(conflictColumns []string, targetColumn string) string {
+	switch d.driver {
+	case "mysql":
+		return fmt.Sprintf("ON DUPLICATE KEY UPDATE %s = %s + VALUES(%s)", targetColumn, targetColumn, targetColumn)
+	default:
+		return fmt.Sprintf("ON CONFLICT(%s) DO UPDATE SET %s = %s + excluded.%s",
+			strings.Join(conflictColumns, ", "),
+			targetColumn,
+			targetColumn,
+			targetColumn,
+		)
+	}
 }

@@ -293,10 +293,12 @@ func sendLoginBusyIfFull(p *player.Player) error {
 
 func isAccountBanned(ctx context.Context, p *player.Player, accountID int) (bool, error) {
 	var banCount int
+	expiryExpr := p.DB.AddMinutesExpr("created_at", "duration")
+	nowExpr := p.DB.CurrentTimestampExpr()
 	err := p.DB.QueryRow(ctx,
 		`SELECT COUNT(1) FROM bans
 		 WHERE account_id = ?
-		 AND (duration = 0 OR datetime(created_at, '+' || duration || ' minutes') > datetime('now'))`,
+		 AND (duration = 0 OR `+expiryExpr+` > `+nowExpr+`)`,
 		accountID,
 	).Scan(&banCount)
 	if errors.Is(err, sql.ErrNoRows) {
