@@ -168,14 +168,72 @@ func handleTradeAgree(ctx context.Context, p *player.Player, reader *player.EoRe
 	}
 
 	p.TradeAgreed = pkt.Agree
+	_ = p.Bus.SendPacket(&server.TradeSpecServerPacket{Agree: pkt.Agree})
 
-	// Notify partner of agreement status
-	p.World.SendToPlayer(p.TradePartnerID, &server.TradeAgreeServerPacket{
+	partner := p.World.GetPlayerSession(p.TradePartnerID)
+	if partner == nil {
+		return nil
+	}
+
+	_ = partner.Bus.SendPacket(&server.TradeAgreeServerPacket{
 		PartnerPlayerId: p.ID,
 		Agree:           pkt.Agree,
 	})
 
+	if !pkt.Agree || !partner.TradeAgreed {
+		return nil
+	}
+
+	finalizeTrade(p, partner)
 	return nil
+}
+
+func finalizeTrade(p, partner *player.Player) {
+	for itemID, amount := range p.TradeItems {
+		if amount <= 0 || p.Inventory[itemID] < amount {
+			p.TradeAgreed = false
+			partner.TradeAgreed = false
+			sendTradeUpdate(p)
+			return
+		}
+	}
+	for itemID, amount := range partner.TradeItems {
+		if amount <= 0 || partner.Inventory[itemID] < amount {
+			p.TradeAgreed = false
+			partner.TradeAgreed = false
+			sendTradeUpdate(p)
+			return
+		}
+	}
+
+	myItems := buildTradeItems(p.ID, p.TradeItems)
+	partnerItems := buildTradeItems(partner.ID, partner.TradeItems)
+
+	for itemID, amount := range p.TradeItems {
+		p.RemoveItem(itemID, amount)
+		partner.AddItem(itemID, amount)
+	}
+	for itemID, amount := range partner.TradeItems {
+		partner.RemoveItem(itemID, amount)
+		p.AddItem(itemID, amount)
+	}
+
+	p.CalculateStats()
+	partner.CalculateStats()
+
+	_ = p.Bus.SendPacket(&server.TradeUseServerPacket{
+		TradeData: []server.TradeItemData{myItems, partnerItems},
+	})
+	_ = partner.Bus.SendPacket(&server.TradeUseServerPacket{
+		TradeData: []server.TradeItemData{partnerItems, myItems},
+	})
+
+	p.TradePartnerID = 0
+	p.TradeItems = nil
+	p.TradeAgreed = false
+	partner.TradePartnerID = 0
+	partner.TradeItems = nil
+	partner.TradeAgreed = false
 }
 
 // handleTradeClose — player closes the trade window.
@@ -201,18 +259,19 @@ func handleTradeClose(ctx context.Context, p *player.Player, _ *player.EoReader)
 
 // sendTradeUpdate sends current trade item data to both players.
 func sendTradeUpdate(p *player.Player) {
+	partner := p.World.GetPlayerSession(p.TradePartnerID)
+	if partner == nil {
+		return
+	}
+
 	myItems := buildTradeItems(p.ID, p.TradeItems)
+	partnerItems := buildTradeItems(partner.ID, partner.TradeItems)
 
-	tradeData := []server.TradeItemData{myItems}
-
-	// Send to the player themselves
 	_ = p.Bus.SendPacket(&server.TradeReplyServerPacket{
-		TradeData: tradeData,
+		TradeData: []server.TradeItemData{myItems, partnerItems},
 	})
-
-	// Notify partner via admin packet (partner's view of your items)
-	p.World.SendToPlayer(p.TradePartnerID, &server.TradeAdminServerPacket{
-		TradeData: tradeData,
+	_ = partner.Bus.SendPacket(&server.TradeReplyServerPacket{
+		TradeData: []server.TradeItemData{partnerItems, myItems},
 	})
 }
 
