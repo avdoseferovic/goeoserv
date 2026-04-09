@@ -11,6 +11,25 @@ import (
 
 // UI Handlers for Editing Dialogs and POSTs
 
+func (s *Server) executeTemplate(w http.ResponseWriter, name string, data any) bool {
+	if err := s.tmpl.ExecuteTemplate(w, name, data); err != nil {
+		slog.Error("template execute error", "name", name, "err", err)
+		return false
+	}
+
+	return true
+}
+
+func parseFormOrBadRequest(w http.ResponseWriter, r *http.Request) bool {
+	if err := r.ParseForm(); err != nil {
+		slog.Error("parse form error", "err", err)
+		http.Error(w, "invalid form data", http.StatusBadRequest)
+		return false
+	}
+
+	return true
+}
+
 // --- Talk ---
 
 func (s *Server) handleUITalkEdit(w http.ResponseWriter, r *http.Request) {
@@ -31,12 +50,14 @@ func (s *Server) handleUITalkEdit(w http.ResponseWriter, r *http.Request) {
 		npc.NpcID = id
 		npc.NpcName = npcName(id)
 	}
-	s.tmpl.ExecuteTemplate(w, "talk_edit", npc)
+	s.executeTemplate(w, "talk_edit", npc)
 }
 
 func (s *Server) handleUITalkPost(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.Atoi(r.PathValue("id"))
-	r.ParseForm()
+	if !parseFormOrBadRequest(w, r) {
+		return
+	}
 	if id == 0 {
 		id, _ = strconv.Atoi(r.FormValue("new_id"))
 	}
@@ -70,7 +91,7 @@ func (s *Server) handleUITalkPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	npc := talkNpc{NpcID: id, NpcName: npcName(id), Rate: rate, Messages: msgs}
-	s.tmpl.ExecuteTemplate(w, "talk_row", npc)
+	s.executeTemplate(w, "talk_row", npc)
 }
 
 // --- Drops ---
@@ -94,12 +115,14 @@ func (s *Server) handleUIDropsEdit(w http.ResponseWriter, r *http.Request) {
 		npc.NpcID = id
 		npc.NpcName = npcName(id)
 	}
-	s.tmpl.ExecuteTemplate(w, "drop_edit", npc)
+	s.executeTemplate(w, "drop_edit", npc)
 }
 
 func (s *Server) handleUIDropsPost(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.Atoi(r.PathValue("id"))
-	r.ParseForm()
+	if !parseFormOrBadRequest(w, r) {
+		return
+	}
 	if id == 0 {
 		id, _ = strconv.Atoi(r.FormValue("new_id"))
 	}
@@ -147,7 +170,7 @@ func (s *Server) handleUIDropsPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	npc := dropNpc{NpcID: id, NpcName: npcName(id), Drops: drops}
-	s.tmpl.ExecuteTemplate(w, "drop_row", npc)
+	s.executeTemplate(w, "drop_row", npc)
 }
 
 // --- Inns ---
@@ -178,12 +201,14 @@ func (s *Server) handleUIInnsEdit(w http.ResponseWriter, r *http.Request) {
 		inn.BehaviorID = id
 		inn.VendorName = vendorName(id)
 	}
-	s.tmpl.ExecuteTemplate(w, "inn_edit", inn)
+	s.executeTemplate(w, "inn_edit", inn)
 }
 
 func (s *Server) handleUIInnsPost(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.Atoi(r.PathValue("id"))
-	r.ParseForm()
+	if !parseFormOrBadRequest(w, r) {
+		return
+	}
 	if id == 0 {
 		id, _ = strconv.Atoi(r.FormValue("new_id"))
 	}
@@ -257,7 +282,7 @@ func (s *Server) handleUIInnsPost(w http.ResponseWriter, r *http.Request) {
 		AltSpawnMap:     altSpawnMap, AltSpawnX: altSpawnX, AltSpawnY: altSpawnY,
 		Questions: qs,
 	}
-	s.tmpl.ExecuteTemplate(w, "inn_row", inn)
+	s.executeTemplate(w, "inn_row", inn)
 }
 
 // --- Shops ---
@@ -295,12 +320,14 @@ func (s *Server) handleUIShopsEdit(w http.ResponseWriter, r *http.Request) {
 		shop.BehaviorID = id
 		shop.VendorName = vendorName(id)
 	}
-	s.tmpl.ExecuteTemplate(w, "shop_edit", shop)
+	s.executeTemplate(w, "shop_edit", shop)
 }
 
 func (s *Server) handleUIShopsPost(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.Atoi(r.PathValue("id"))
-	r.ParseForm()
+	if !parseFormOrBadRequest(w, r) {
+		return
+	}
 	if id == 0 {
 		id, _ = strconv.Atoi(r.FormValue("new_id"))
 	}
@@ -386,7 +413,7 @@ func (s *Server) handleUIShopsPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	shop := shopRecord{BehaviorID: id, VendorName: vendorName(id), Name: name, Trades: trades, Crafts: crafts}
-	s.tmpl.ExecuteTemplate(w, "shop_row", shop)
+	s.executeTemplate(w, "shop_row", shop)
 }
 
 // --- Masters ---
@@ -417,12 +444,14 @@ func (s *Server) handleUIMastersEdit(w http.ResponseWriter, r *http.Request) {
 		master.BehaviorID = id
 		master.VendorName = vendorName(id)
 	}
-	s.tmpl.ExecuteTemplate(w, "master_edit", master)
+	s.executeTemplate(w, "master_edit", master)
 }
 
 func (s *Server) handleUIMastersPost(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.Atoi(r.PathValue("id"))
-	r.ParseForm()
+	if !parseFormOrBadRequest(w, r) {
+		return
+	}
 	if id == 0 {
 		id, _ = strconv.Atoi(r.FormValue("new_id"))
 	}
@@ -512,7 +541,7 @@ func (s *Server) handleUIMastersPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	master := masterRecord{BehaviorID: id, VendorName: vendorName(id), Name: name, Skills: skills}
-	s.tmpl.ExecuteTemplate(w, "master_row", master)
+	s.executeTemplate(w, "master_row", master)
 }
 
 func (s *Server) handleUIDropsDelete(w http.ResponseWriter, r *http.Request) {
